@@ -11,8 +11,9 @@ import logging
 from sklearn.covariance import LedoitWolf
 import warnings
 
-from src.dataset_patches import procesar_dataset
-from src.feature_extractor import FeatureExtractor
+# Importaciones eliminadas - estas funciones no existen en el proyecto actual
+# from src.dataset_patches import procesar_dataset
+# from src.feature_extractor import FeatureExtractor
 
 logger = logging.getLogger(__name__)
 warnings.filterwarnings('ignore')
@@ -217,11 +218,16 @@ def entrenar_distribucion(
     logger.info(f"Encontradas {len(clases)} clases: {[c.name for c in clases]}")
     
     # Preparar lista de tareas
-    from src.dataset_patches import cargar_imagenes_clase
+    # Función cargar_imagenes_clase no existe - usar lógica alternativa
+    import cv2
+    extensiones = ['.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff']
     todas_imagenes = []
     for clase_dir in clases:
         clase_id = int(clase_dir.name)
-        imagenes = cargar_imagenes_clase(clase_dir)
+        imagenes = []
+        for ext in extensiones:
+            imagenes.extend(clase_dir.glob(f"*{ext}"))
+            imagenes.extend(clase_dir.glob(f"*{ext.upper()}"))
         for img_path in imagenes:
             todas_imagenes.append((img_path, clase_id))
     
@@ -264,9 +270,15 @@ def entrenar_distribucion(
         
         for img_path, clase_id in batch_imagenes:
             try:
-                from src.dataset_patches import _procesar_imagen_worker
-                patches, etiq, rutas, num_p = _procesar_imagen_worker(
-                    img_path, clase_id, tamaño_patch, stride, overlap_percent, tamaño_imagen, aplicar_preprocesamiento
+                # Usar procesar_imagen_inferencia de utils en lugar de _procesar_imagen_worker
+                from modelos.modelo2_features.utils import procesar_imagen_inferencia
+                patches, posiciones, _ = procesar_imagen_inferencia(
+                    str(img_path),
+                    tamaño_patch=tamaño_patch,
+                    overlap_percent=overlap_percent,
+                    tamaño_imagen=tamaño_imagen,
+                    aplicar_preprocesamiento=aplicar_preprocesamiento,
+                    usar_patches=True  # En fit_distribution siempre se usan patches
                 )
                 patches_acumulados.extend(patches)
                 total_patches_en_lote += len(patches)

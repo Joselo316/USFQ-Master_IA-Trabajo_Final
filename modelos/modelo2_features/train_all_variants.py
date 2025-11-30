@@ -103,8 +103,8 @@ pero diferentes backbones.
     parser.add_argument(
         '--batch_size',
         type=int,
-        default=32,
-        help='Tamaño de batch para extracción de features (default: 32)'
+        default=64,
+        help='Tamaño de batch para extracción de features (default: 64)'
     )
     parser.add_argument(
         '--usar_patches',

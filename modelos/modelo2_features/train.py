@@ -22,7 +22,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "preprocesamiento"))
 
 import config
 from modelos.modelo2_features.feature_extractor import FeatureExtractor
-from modelos.modelo2_features.fit_distribution import DistribucionFeatures, entrenar_distribucion
+from modelos.modelo2_features.fit_distribution import DistribucionFeatures
 from modelos.modelo2_features.utils import procesar_imagen_inferencia
 from preprocesamiento import cargar_y_preprocesar_3canales
 
