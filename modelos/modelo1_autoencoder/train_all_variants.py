@@ -93,7 +93,7 @@ pero diferentes arquitecturas de modelo.
     parser.add_argument(
         '--use_segmentation',
         action='store_true',
-        help='Usar segmentación en parches'
+        help='Usar segmentación en parches (por defecto: NO, redimensiona imagen completa)'
     )
     parser.add_argument(
         '--patch_size',
@@ -194,12 +194,15 @@ pero diferentes arquitecturas de modelo.
         'min_delta': args.min_delta if args.early_stopping else None
     }
     
+    # Por defecto NO usar segmentación (redimensionar imagen completa)
     if args.use_segmentation:
         args_base['use_segmentation'] = True
         args_base['patch_size'] = args.patch_size
         args_base['overlap_ratio'] = args.overlap_ratio
     else:
+        # Por defecto: redimensionar imagen completa (NO segmentación)
         args_base['img_size'] = args.img_size
+        # No agregar use_segmentation para que sea False por defecto
     
     if args.early_stopping:
         args_base['early_stopping'] = True
@@ -212,10 +215,13 @@ pero diferentes arquitecturas de modelo.
     print(f"  Batch size: {args.batch_size}")
     print(f"  Épocas: {args.epochs}")
     print(f"  Learning rate: {args.lr}")
-    print(f"  Segmentación: {'Sí' if args.use_segmentation else 'No'}")
+    print(f"  Segmentación: {'Sí (dividir en parches)' if args.use_segmentation else 'No (redimensionar imagen completa)'}")
     if args.use_segmentation:
         print(f"  Patch size: {args.patch_size}")
         print(f"  Overlap ratio: {args.overlap_ratio}")
+    else:
+        print(f"  Tamaño de imagen: {args.img_size}x{args.img_size}")
+        print(f"  Modo: Redimensionar imagen completa y aplicar preprocesamiento de 3 canales")
     if args.early_stopping:
         print(f"  Early stopping: Sí (patience={args.patience}, min_delta={args.min_delta})")
     print("="*70)
