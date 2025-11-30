@@ -502,6 +502,55 @@ Requisitos principales:
 
 5. **Comparación justa**: Al usar el mismo preprocesamiento, los tres modelos procesan exactamente las mismas imágenes, permitiendo una comparación justa de sus resultados.
 
+## Inferencia Masiva (Modelo 1)
+
+Para inferir todas las imágenes de una carpeta con los 3 modelos del modelo1:
+
+```bash
+# Desde la raíz del proyecto
+python inferir_todas_imagenes.py
+```
+
+Este script:
+- Procesa todas las imágenes en la carpeta `Inferencia/`
+- Ejecuta inferencia con los 3 modelos (normal, ResNet18, ResNet50)
+- Guarda resultados en carpetas separadas dentro de `Resultados_Inferencia/`
+- Cada imagen incluye el tiempo de inferencia en los metadatos
+
+Opciones:
+- `--input_dir`: Directorio con imágenes (default: Inferencia/)
+- `--output_dir`: Directorio de salida (default: Resultados_Inferencia/)
+- `--use_segmentation`: Usar segmentación en parches
+- `--skip_normal`: Saltar modelo original
+- `--skip_resnet18`: Saltar modelo ResNet18
+- `--skip_resnet50`: Saltar modelo ResNet50
+
+Ejemplo:
+```bash
+# Inferir todas las imágenes con los 3 modelos
+python inferir_todas_imagenes.py
+
+# Solo con modelo ResNet18 y ResNet50
+python inferir_todas_imagenes.py --skip_normal
+
+# Con segmentación en parches
+python inferir_todas_imagenes.py --use_segmentation --patch_size 256 --overlap_ratio 0.3
+```
+
+Estructura de salida:
+```
+Resultados_Inferencia/
+├── Modelo_Original/
+│   ├── imagen1_reconstruction.png
+│   ├── imagen1_anomaly_map.png
+│   ├── imagen1_overlay.png
+│   └── ...
+├── Modelo_ResNet18/
+│   └── ...
+└── Modelo_ResNet50/
+    └── ...
+```
+
 ## Ejecutar todos los modelos
 
 Para ejecutar los tres modelos en la misma imagen:
