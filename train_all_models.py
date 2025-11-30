@@ -77,6 +77,14 @@ def entrenar_modelo2(args):
     if args.model2_output_dir:
         cmd.extend(["--output_dir", args.model2_output_dir])
     
+    # Por defecto NO usar patches (resize completo)
+    if not args.use_segmentation:
+        cmd.extend(["--img_size", str(args.img_size)])
+    else:
+        cmd.append("--usar_patches")
+        cmd.extend(["--patch_size", str(args.patch_size), str(args.patch_size)])
+        cmd.extend(["--overlap_percent", str(args.overlap_ratio)])
+    
     print(f"Comando: {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=PROJECT_ROOT)
     return result.returncode == 0
