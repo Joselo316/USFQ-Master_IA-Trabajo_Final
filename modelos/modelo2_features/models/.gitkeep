@@ -1,0 +1,3 @@
+# Esta carpeta contiene los modelos entrenados (distribuciones de features)
+# Los archivos .pkl se ignoran por .gitignore
+

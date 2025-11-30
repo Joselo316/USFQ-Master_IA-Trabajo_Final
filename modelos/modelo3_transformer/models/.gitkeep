@@ -1,0 +1,3 @@
+# Esta carpeta contiene los modelos entrenados (ViT + k-NN)
+# Los archivos .pkl se ignoran por .gitignore
+

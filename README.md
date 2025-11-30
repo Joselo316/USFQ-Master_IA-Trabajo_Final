@@ -16,17 +16,20 @@ TesisMDP/
 │   │   ├── main.py              # Script principal de inferencia
 │   │   ├── utils.py             # Utilidades del modelo
 │   │   ├── model_autoencoder.py # Arquitectura del autoencoder
+│   │   ├── models/              # Modelos entrenados (.pt)
 │   │   └── outputs/             # Resultados del modelo 1
 │   ├── modelo2_features/
 │   │   ├── main.py              # Script principal de inferencia
 │   │   ├── utils.py             # Utilidades del modelo
 │   │   ├── feature_extractor.py # Extractor de features
 │   │   ├── fit_distribution.py  # Ajuste de distribución
+│   │   ├── models/              # Modelos entrenados (.pkl)
 │   │   └── outputs/             # Resultados del modelo 2
 │   └── modelo3_transformer/
 │       ├── main.py              # Script principal de inferencia
 │       ├── utils.py             # Utilidades del modelo
 │       ├── vit_feature_extractor.py # Extractor de features ViT
+│       ├── models/              # Modelos entrenados (.pkl)
 │       └── outputs/              # Resultados del modelo 3
 ```
 
@@ -61,6 +64,24 @@ DATASET_PATH = r"D:\Dataset\imagenes"  # Cambiar esta ruta
 ```
 
 **Importante**: El dataset debe permanecer fuera del repositorio. Solo se almacena la ruta en `config.py`.
+
+### 2. Ubicación de los modelos entrenados
+
+Los modelos entrenados se guardan en las siguientes carpetas:
+
+- **Modelo 1 (Autoencoder)**: `modelos/modelo1_autoencoder/models/`
+  - Formato: archivos `.pt` (PyTorch)
+  - Ejemplo: `autoencoder_normal.pt`
+
+- **Modelo 2 (Features)**: `modelos/modelo2_features/models/`
+  - Formato: archivos `.pkl` (Pickle)
+  - Ejemplo: `distribucion_features_wide_resnet50_2_preproc.pkl`
+
+- **Modelo 3 (Transformer)**: `modelos/modelo3_transformer/models/`
+  - Formato: archivos `.pkl` (Pickle)
+  - Ejemplo: `vit_knn_model.pkl`
+
+**Nota**: Los archivos de modelos (`.pt`, `.pkl`) están excluidos del repositorio por `.gitignore` debido a su tamaño. Debes entrenar los modelos localmente o descargarlos por separado.
 
 ### 2. Parámetros comunes
 
