@@ -121,40 +121,58 @@ def main():
         epilog="""
 Ejemplos de uso:
 
+  # Entrenar modelo 1 (Autoencoder)
+  python train_all_models.py --modelo 1
+
+  # Entrenar modelo 2 (Features)
+  python train_all_models.py --modelo 2
+
+  # Entrenar modelo 3 (Transformer)
+  python train_all_models.py --modelo 3
+
   # Entrenar todos los modelos
-  python train_all_models.py --all
-
-  # Entrenar solo el modelo 1
-  python train_all_models.py --model1
-
-  # Entrenar modelo 1 y 2
-  python train_all_models.py --model1 --model2
+  python train_all_models.py --modelo all
 
   # Entrenar modelo 1 con transfer learning
-  python train_all_models.py --model1 --model1_transfer_learning --model1_encoder resnet50
+  python train_all_models.py --modelo 1 --model1_transfer_learning --model1_encoder resnet50
+
+  # Opciones alternativas (compatibilidad):
+  python train_all_models.py --model1
+  python train_all_models.py --model2
+  python train_all_models.py --model3
+  python train_all_models.py --all
         """
     )
     
-    # Selección de modelos
+    # Selección de modelos - Nueva opción simple
+    parser.add_argument(
+        '--modelo',
+        type=str,
+        choices=['1', '2', '3', 'all', 'todos'],
+        default=None,
+        help='Modelo a entrenar: 1 (Autoencoder), 2 (Features), 3 (Transformer), all/todos (todos los modelos)'
+    )
+    
+    # Selección de modelos - Opciones antiguas (mantener compatibilidad)
     parser.add_argument(
         '--all',
         action='store_true',
-        help='Entrenar todos los modelos'
+        help='Entrenar todos los modelos (alternativa a --modelo all)'
     )
     parser.add_argument(
         '--model1',
         action='store_true',
-        help='Entrenar modelo 1 (Autoencoder)'
+        help='Entrenar modelo 1 (Autoencoder) (alternativa a --modelo 1)'
     )
     parser.add_argument(
         '--model2',
         action='store_true',
-        help='Entrenar modelo 2 (Features)'
+        help='Entrenar modelo 2 (Features) (alternativa a --modelo 2)'
     )
     parser.add_argument(
         '--model3',
         action='store_true',
-        help='Entrenar modelo 3 (Transformer)'
+        help='Entrenar modelo 3 (Transformer) (alternativa a --modelo 3)'
     )
     
     # Parámetros comunes
@@ -270,11 +288,32 @@ Ejemplos de uso:
     args = parser.parse_args()
     
     # Determinar qué modelos entrenar
-    if args.all:
+    # Prioridad: --modelo > flags individuales > --all
+    if args.modelo:
+        # Nueva opción simple
+        if args.modelo in ['all', 'todos']:
+            entrenar_modelo1_flag = True
+            entrenar_modelo2_flag = True
+            entrenar_modelo3_flag = True
+        elif args.modelo == '1':
+            entrenar_modelo1_flag = True
+            entrenar_modelo2_flag = False
+            entrenar_modelo3_flag = False
+        elif args.modelo == '2':
+            entrenar_modelo1_flag = False
+            entrenar_modelo2_flag = True
+            entrenar_modelo3_flag = False
+        elif args.modelo == '3':
+            entrenar_modelo1_flag = False
+            entrenar_modelo2_flag = False
+            entrenar_modelo3_flag = True
+    elif args.all:
+        # Opción antigua --all
         entrenar_modelo1_flag = True
         entrenar_modelo2_flag = True
         entrenar_modelo3_flag = True
     else:
+        # Opciones antiguas individuales
         entrenar_modelo1_flag = args.model1
         entrenar_modelo2_flag = args.model2
         entrenar_modelo3_flag = args.model3
@@ -283,7 +322,16 @@ Ejemplos de uso:
     if not any([entrenar_modelo1_flag, entrenar_modelo2_flag, entrenar_modelo3_flag]):
         parser.print_help()
         print("\nERROR: Debes especificar al menos un modelo para entrenar.")
-        print("Usa --all para entrenar todos, o --model1, --model2, --model3 para seleccionar.")
+        print("\nOpciones:")
+        print("  --modelo 1        Entrenar solo modelo 1 (Autoencoder)")
+        print("  --modelo 2        Entrenar solo modelo 2 (Features)")
+        print("  --modelo 3        Entrenar solo modelo 3 (Transformer)")
+        print("  --modelo all      Entrenar todos los modelos")
+        print("\nOpciones alternativas (compatibilidad):")
+        print("  --model1          Entrenar modelo 1")
+        print("  --model2          Entrenar modelo 2")
+        print("  --model3          Entrenar modelo 3")
+        print("  --all             Entrenar todos los modelos")
         return
     
     # Obtener data_dir desde config si no se especifica
