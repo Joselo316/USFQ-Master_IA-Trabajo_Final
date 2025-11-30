@@ -148,13 +148,13 @@ pero diferentes backbones.
         '--max_images_per_batch',
         type=int,
         default=None,
-        help='Máximo de imágenes a procesar antes de extraer features (None = todas)'
+        help='Máximo de imágenes a procesar antes de extraer features (default: 50, conservador para evitar saturación de RAM)'
     )
     parser.add_argument(
         '--max_patches_per_feature_batch',
         type=int,
-        default=50000,
-        help='Máximo de patches a acumular antes de extraer features (default: 50000)'
+        default=10000,
+        help='Máximo de patches a acumular antes de extraer features (default: 10000, ajustado automáticamente según tamaño de patch)'
     )
     
     # Opciones para saltar variantes

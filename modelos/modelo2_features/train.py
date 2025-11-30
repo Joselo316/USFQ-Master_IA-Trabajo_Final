@@ -156,12 +156,30 @@ def entrenar_modelo(
     features_por_capa_acum = {}
     total_patches_procesados = 0
     
-    # Configurar lotes
+    # Configurar lotes - Valores conservadores para evitar saturación de memoria
     if max_images_per_batch is None:
-        max_images_per_batch = len(imagenes)
+        # Procesar máximo 50 imágenes a la vez para evitar saturación de RAM
+        max_images_per_batch = min(50, len(imagenes))
+        logger.info(f"max_images_per_batch no especificado, usando valor conservador: {max_images_per_batch}")
+    
+    # Ajustar max_patches_per_feature_batch según tamaño de patch para evitar problemas de memoria
+    if usar_patches:
+        patch_size_mb = (tamaño_patch[0] * tamaño_patch[1] * 3 * 4) / (1024 * 1024)  # MB por patch (float32, 3 canales)
+        # Limitar a aproximadamente 1GB de RAM para patches
+        max_patches_ajustado = int(1024.0 / patch_size_mb)  # Aproximadamente 1GB
+        if max_patches_ajustado < max_patches_per_feature_batch:
+            logger.info(f"Ajustando max_patches_per_feature_batch: {max_patches_per_feature_batch} → {max_patches_ajustado} "
+                       f"(para evitar exceder ~1GB de RAM con patches de {tamaño_patch})")
+            max_patches_per_feature_batch = max_patches_ajustado
+    else:
+        # Si no se usan patches, cada imagen es un solo "patch", así que limitar a menos imágenes
+        if max_images_per_batch > 100:
+            max_images_per_batch = 100
+            logger.info(f"Ajustando max_images_per_batch a {max_images_per_batch} para modo resize completo")
     
     num_batches = (len(imagenes) + max_images_per_batch - 1) // max_images_per_batch
     logger.info(f"Procesando en {num_batches} lotes de máximo {max_images_per_batch} imágenes...")
+    logger.info(f"Max patches por lote de features: {max_patches_per_feature_batch}")
     
     for batch_idx in range(num_batches):
         inicio_batch = batch_idx * max_images_per_batch
@@ -191,13 +209,24 @@ def entrenar_modelo(
                 patches_acumulados.extend(patches)
                 total_patches_en_lote += len(patches)
             
-            # Extraer features cuando se alcanza el límite
+            # Extraer features cuando se alcanza el límite (más frecuente para evitar saturación)
             if len(patches_acumulados) >= max_patches_per_feature_batch:
                 logger.info(f"  Extrayendo features de {len(patches_acumulados)} patches acumulados...")
                 patches_array = np.array(patches_acumulados)
+                
+                # Liberar lista de patches antes de convertir a array
+                del patches_acumulados
+                gc.collect()
+                
                 features_batch = extractor.extraer_features_patches(
                     patches_array, batch_size=batch_size
                 )
+                
+                # Liberar array de patches inmediatamente después de extraer features
+                del patches_array
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                gc.collect()
                 
                 # Acumular features
                 for capa, feat in features_batch.items():
@@ -205,18 +234,31 @@ def entrenar_modelo(
                         features_por_capa_acum[capa] = []
                     features_por_capa_acum[capa].append(feat)
                 
-                # Liberar memoria
-                del patches_acumulados, patches_array, features_batch
-                patches_acumulados = []
+                # Liberar features_batch
+                del features_batch
                 gc.collect()
+                
+                # Reinicializar lista de patches
+                patches_acumulados = []
         
         # Extraer features de los patches restantes
         if len(patches_acumulados) > 0:
             logger.info(f"  Extrayendo features de {len(patches_acumulados)} patches restantes...")
             patches_array = np.array(patches_acumulados)
+            
+            # Liberar lista de patches antes de convertir a array
+            del patches_acumulados
+            gc.collect()
+            
             features_batch = extractor.extraer_features_patches(
                 patches_array, batch_size=batch_size
             )
+            
+            # Liberar array de patches inmediatamente
+            del patches_array
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
             
             # Acumular features
             for capa, feat in features_batch.items():
@@ -224,20 +266,24 @@ def entrenar_modelo(
                     features_por_capa_acum[capa] = []
                 features_por_capa_acum[capa].append(feat)
             
-            # Liberar memoria
-            del patches_acumulados, patches_array, features_batch
+            # Liberar features_batch
+            del features_batch
             gc.collect()
         
         total_patches_procesados += total_patches_en_lote
         logger.info(f"  Lote {batch_idx + 1} completado. Patches procesados: {total_patches_en_lote}, Total acumulado: {total_patches_procesados}")
     
-    # Concatenar todos los features acumulados
+    # Concatenar todos los features acumulados (procesar una capa a la vez para ahorrar memoria)
     logger.info("\nConcatenando features de todos los lotes...")
     features_por_capa = {}
-    for capa in features_por_capa_acum.keys():
+    capas_keys = list(features_por_capa_acum.keys())
+    for capa in capas_keys:
         feat_list = features_por_capa_acum[capa]
+        logger.info(f"  Concatenando features de capa {capa} ({len(feat_list)} lotes)...")
         features_por_capa[capa] = np.concatenate(feat_list, axis=0)
+        # Liberar memoria inmediatamente
         del features_por_capa_acum[capa], feat_list
+        gc.collect()
     
     logger.info(f"Total patches procesados: {total_patches_procesados}")
     
@@ -357,13 +403,13 @@ Ejemplo de uso:
         '--max_images_per_batch',
         type=int,
         default=None,
-        help='Máximo de imágenes a procesar antes de extraer features (None = todas)'
+        help='Máximo de imágenes a procesar antes de extraer features (default: 50, conservador para evitar saturación de RAM)'
     )
     parser.add_argument(
         '--max_patches_per_feature_batch',
         type=int,
-        default=50000,
-        help='Máximo de patches a acumular antes de extraer features (default: 50000)'
+        default=10000,
+        help='Máximo de patches a acumular antes de extraer features (default: 10000, ajustado automáticamente según tamaño de patch)'
     )
     
     args = parser.parse_args()
