@@ -143,12 +143,13 @@ def preprocesar_imagen_3canales(img_gray: np.ndarray) -> np.ndarray:
     return img_3canales
 
 
-def cargar_y_preprocesar_3canales(ruta: str) -> np.ndarray:
+def cargar_y_preprocesar_3canales(ruta: str, tamaño_objetivo: Optional[Tuple[int, int]] = None) -> np.ndarray:
     """
     Carga una imagen desde archivo y la preprocesa a 3 canales.
     
     Args:
         ruta: Ruta al archivo de imagen
+        tamaño_objetivo: Tamaño objetivo (alto, ancho) para redimensionar. Si es None, mantiene tamaño original.
     
     Returns:
         Imagen RGB de 3 canales (H, W, 3) con valores en [0, 255] (uint8)
@@ -157,6 +158,11 @@ def cargar_y_preprocesar_3canales(ruta: str) -> np.ndarray:
     img = cv2.imread(ruta, cv2.IMREAD_GRAYSCALE)
     if img is None:
         raise ValueError(f"No se pudo cargar la imagen: {ruta}")
+    
+    # Redimensionar si se especifica tamaño objetivo
+    if tamaño_objetivo is not None:
+        alto, ancho = tamaño_objetivo
+        img = cv2.resize(img, (ancho, alto), interpolation=cv2.INTER_LINEAR)
     
     # Aplicar preprocesamiento de 3 canales
     img_procesada = preprocesar_imagen_3canales(img)
