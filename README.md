@@ -8,14 +8,22 @@ Este repositorio contiene tres modelos de detección de anomalías para tableros
 TesisMDP/
 ├── README.md
 ├── config.py                    # Configuración centralizada (ruta al dataset y parámetros)
+├── preprocesar_dataset.py       # Script para preprocesar todo el dataset
+├── train_all_models.py          # Script maestro para entrenar todos los modelos
+├── requirements.txt             # Dependencias del proyecto
 ├── preprocesamiento/
 │   ├── preprocesamiento.py      # Preprocesamiento común de 3 canales
 │   └── correct_board.py         # Script de corrección de bordes (ya aplicado)
 ├── modelos/
 │   ├── modelo1_autoencoder/
 │   │   ├── main.py              # Script principal de inferencia
+│   │   ├── train.py             # Script de entrenamiento individual
+│   │   ├── train_all_variants.py # Script para entrenar 3 variantes
 │   │   ├── utils.py             # Utilidades del modelo
-│   │   ├── model_autoencoder.py # Arquitectura del autoencoder
+│   │   ├── model_autoencoder.py # Arquitectura del autoencoder original
+│   │   ├── model_autoencoder_transfer.py # Arquitectura con transfer learning
+│   │   ├── README_TRANSFER_LEARNING.md # Documentación detallada de transfer learning
+│   │   ├── plot_training_history.py # Script para generar gráficas del entrenamiento
 │   │   ├── models/              # Modelos entrenados (.pt)
 │   │   └── outputs/             # Resultados del modelo 1
 │   ├── modelo2_features/
@@ -55,6 +63,26 @@ TesisMDP/
 - **Funcionamiento**: Extrae features usando ViT y compara con features normales usando k-NN.
 - **Entrada**: Imágenes de 3 canales (resultado del preprocesamiento común)
 - **Salida**: Mapa de anomalía, mapa binario y visualización
+
+## Preprocesamiento del Dataset
+
+Antes de entrenar, puedes preprocesar todo el dataset para acelerar el entrenamiento:
+
+```bash
+# Preprocesar dataset completo (redimensiona a 256x256 y aplica preprocesamiento de 3 canales)
+python preprocesar_dataset.py --input_dir "E:/Dataset/clases" --output_dir "E:/Dataset/preprocesadas"
+
+# Con procesamiento paralelo (más rápido)
+python preprocesar_dataset.py --input_dir "E:/Dataset/clases" --num_workers 30
+```
+
+El script:
+- Aplica el preprocesamiento de 3 canales a todas las imágenes
+- Redimensiona a 256x256 por defecto
+- Mantiene la misma estructura de carpetas (0-9)
+- Guarda las imágenes preprocesadas en `E:/Dataset/preprocesadas` por defecto
+
+**Ventaja**: Si usas imágenes preprocesadas, el entrenamiento será mucho más rápido ya que no necesita aplicar el preprocesamiento en cada época.
 
 ## Configuración
 
@@ -145,15 +173,19 @@ Este script entrena automáticamente 3 modelos con nombres diferentes:
 2. `autoencoder_resnet18.pt` - Con transfer learning ResNet18
 3. `autoencoder_resnet50.pt` - Con transfer learning ResNet50
 
+**Por defecto**: Usa imágenes preprocesadas desde `E:/Dataset/preprocesadas` si existen, sino usa imágenes originales desde `config.DATASET_PATH`.
+
 Opciones principales de `train_all_variants.py`:
-- `--data_dir`: Directorio raíz con carpetas 0-9 (default: desde config.py)
-- `--use_segmentation`: Usar segmentación en parches
+- `--data_dir`: Directorio raíz con carpetas 0-9 (default: E:/Dataset/preprocesadas si existe, sino config.DATASET_PATH)
+- `--usar_preprocesadas`: Usar imágenes preprocesadas (default: True)
+- `--usar_originales`: Usar imágenes originales (aplica preprocesamiento durante entrenamiento)
+- `--use_segmentation`: Usar segmentación en parches (opcional, por defecto NO)
 - `--patch_size`: Tamaño de parche cuando se usa segmentación (default: 256)
 - `--overlap_ratio`: Solapamiento entre parches (default: 0.3)
-- `--batch_size`: Tamaño de batch (default: 32)
+- `--batch_size`: Tamaño de batch (default: 64, optimizado para GPU)
 - `--epochs`: Número de épocas (default: 50)
 - `--lr`: Learning rate (default: 1e-3)
-- `--early_stopping`: Activar early stopping para todas las variantes
+- `--early_stopping`: Activar early stopping para todas las variantes (default: True)
 - `--patience`: Paciencia para early stopping (default: 10)
 - `--min_delta`: Mejora mínima relativa (default: 0.0001)
 - `--skip_original`: Saltar entrenamiento del modelo original
@@ -249,7 +281,125 @@ python main.py --image_path "../../dataset/imagen.png" --model_path "models/auto
 python main.py --image_path "../../dataset/imagen.png" --model_path "models/autoencoder_resnet50.pt" --use_transfer_learning --encoder_name resnet50
 ```
 
-**Nota sobre Transfer Learning**: El modelo con transfer learning usa un encoder ResNet preentrenado en ImageNet. Ver `README_TRANSFER_LEARNING.md` para más detalles.
+## Transfer Learning en Modelo 1
+
+El Modelo 1 (Autoencoder) soporta una opción de transfer learning que utiliza un encoder preentrenado de la familia ResNet (ResNet18, ResNet34, ResNet50) y un decoder personalizado.
+
+### Descripción
+
+Se ha creado una versión alternativa del autoencoder que permite usar **transfer learning** con un encoder preentrenado (ResNet). Esta opción está disponible tanto en entrenamiento como en inferencia.
+
+### Ventajas del Transfer Learning
+
+1. **Mejor inicialización**: El encoder ya tiene features aprendidas de ImageNet
+2. **Menos datos necesarios**: Requiere menos datos de entrenamiento
+3. **Convergencia más rápida**: El modelo converge más rápido
+4. **Mejor generalización**: Features preentrenadas ayudan a generalizar mejor
+
+### Arquitectura
+
+- **Encoder**: ResNet preentrenado (ResNet18, ResNet34, o ResNet50)
+  - Puede estar congelado (solo entrena decoder) o hacer fine-tuning
+- **Decoder**: Entrenado desde cero (capas de convolución transpuesta)
+
+### Uso en Código
+
+#### Opción 1: Encoder Congelado (Solo entrena decoder)
+
+```python
+from modelos.modelo1_autoencoder.model_autoencoder_transfer import AutoencoderTransferLearning
+
+# Crear modelo con encoder ResNet18 preentrenado (congelado)
+model = AutoencoderTransferLearning(
+    encoder_name='resnet18',      # 'resnet18', 'resnet34', o 'resnet50'
+    in_channels=3,                 # 3 canales (RGB del preprocesamiento)
+    freeze_encoder=True,           # Congelar encoder, solo entrenar decoder
+)
+```
+
+#### Opción 2: Fine-tuning (Entrena encoder y decoder)
+
+```python
+# Crear modelo con encoder descongelado
+model = AutoencoderTransferLearning(
+    encoder_name='resnet18',
+    in_channels=3,
+    freeze_encoder=False,          # Permitir fine-tuning del encoder
+)
+```
+
+### Modelos Disponibles
+
+- **ResNet18**: Más rápido, menos parámetros (512 canales en bottleneck, ~11M parámetros)
+- **ResNet34**: Intermedio (512 canales, ~21M parámetros)
+- **ResNet50**: Más profundo, mejor representación (2048 canales en bottleneck, ~25M parámetros)
+
+### Comparación con Modelo Original
+
+| Característica | Modelo Original | Con Transfer Learning |
+|----------------|-----------------|----------------------|
+| Encoder | Entrenado desde cero | ResNet preentrenado |
+| Parámetros encoder | ~100K | ~11M (ResNet18) |
+| Tiempo entrenamiento | Más lento | Más rápido (si encoder congelado) |
+| Datos necesarios | Más | Menos |
+| Rendimiento | Depende de datos | Generalmente mejor |
+
+### Estrategias de Entrenamiento
+
+#### Estrategia 1: Dos Fases
+1. **Fase 1**: Entrenar solo decoder (encoder congelado)
+2. **Fase 2**: Fine-tuning de todo el modelo (encoder descongelado)
+
+#### Estrategia 2: Fine-tuning desde el inicio
+- Entrenar encoder y decoder juntos desde el principio
+- Usar learning rate más bajo para el encoder
+
+#### Estrategia 3: Learning Rates Diferentes
+```python
+# Learning rate más bajo para encoder preentrenado
+encoder_params = list(model.encoder.parameters())
+decoder_params = list(model.decoder.parameters())
+
+optimizer = torch.optim.Adam([
+    {'params': encoder_params, 'lr': 1e-5},  # LR bajo para encoder
+    {'params': decoder_params, 'lr': 1e-3}    # LR normal para decoder
+])
+```
+
+### Uso en Entrenamiento
+
+Para entrenar con transfer learning:
+
+```bash
+# Entrenar modelo con ResNet18 (encoder congelado)
+python train.py --data_dir "ruta/al/dataset" --use_transfer_learning --encoder_name resnet18 --freeze_encoder
+
+# Entrenar modelo con ResNet50 (fine-tuning)
+python train.py --data_dir "ruta/al/dataset" --use_transfer_learning --encoder_name resnet50 --freeze_encoder=False
+
+# Entrenar las 3 variantes (original, ResNet18, ResNet50)
+python train_all_variants.py --early_stopping
+```
+
+### Uso en Inferencia
+
+Para usar el modelo con transfer learning en inferencia:
+
+```bash
+# Modelo con transfer learning (ResNet18)
+python main.py --image_path "imagen.png" --model_path "models/autoencoder_resnet18.pt" --use_transfer_learning --encoder_name resnet18
+
+# Modelo con transfer learning (ResNet50)
+python main.py --image_path "imagen.png" --model_path "models/autoencoder_resnet50.pt" --use_transfer_learning --encoder_name resnet50
+```
+
+### Notas Importantes
+
+- El encoder preentrenado fue entrenado en ImageNet (1000 clases)
+- Aunque ImageNet es diferente a tableros laminados, las features de bajo nivel (bordes, texturas) son transferibles
+- Para datasets muy pequeños, es mejor congelar el encoder
+- Para datasets grandes, el fine-tuning puede mejorar aún más
+- El modelo detecta automáticamente si las imágenes están preprocesadas (3 canales) o si necesita aplicar el preprocesamiento
 
 ### Modelo 2: Features
 
@@ -322,16 +472,23 @@ Cada modelo guarda sus resultados en su respectiva carpeta `outputs/`:
 
 ## Requisitos
 
-Los requisitos dependen de cada modelo. Consulta los archivos `requirements.txt` en cada carpeta de modelo si están disponibles.
+Instalar todas las dependencias:
 
-Requisitos generales:
+```bash
+pip install -r requirements.txt
+```
+
+Requisitos principales:
 - Python 3.8+
-- OpenCV (cv2)
-- NumPy
-- PyTorch (para modelos 1 y 2)
-- Transformers (para modelo 3)
-- scikit-learn (para modelos 2 y 3)
-- Matplotlib (para visualizaciones)
+- PyTorch >= 1.9.0 (con soporte CUDA recomendado)
+- torchvision >= 0.10.0
+- OpenCV (cv2) >= 4.5.0
+- NumPy >= 1.21.0
+- Transformers >= 4.20.0 (para modelo 3)
+- scikit-learn >= 1.0.0 (para modelos 2 y 3)
+- Matplotlib >= 3.5.0 (para visualizaciones)
+- TensorBoard >= 2.8.0 (opcional, para monitoreo de entrenamiento)
+- tqdm >= 4.62.0 (para barras de progreso)
 
 ## Notas Importantes
 
