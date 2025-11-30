@@ -15,7 +15,7 @@ import numpy as np
 from typing import List, Tuple, Optional
 
 # Importar preprocesamiento común
-from preprocesamiento.preprocesamiento import preprocesar_imagen_3canales, cargar_y_preprocesar_3canales
+from preprocesamiento import preprocesar_imagen_3canales, cargar_y_preprocesar_3canales
 import config
 
 
