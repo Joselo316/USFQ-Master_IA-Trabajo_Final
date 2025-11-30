@@ -140,13 +140,16 @@ class GoodBoardsDataset(Dataset):
             return img_tensor
 
 
-def train_epoch(model, train_loader, criterion, optimizer, device):
+def train_epoch(model, train_loader, criterion, optimizer, device, epoch_num, total_epochs):
     """Entrena el modelo por una época."""
     model.train()
     total_loss = 0.0
     num_batches = 0
+    total_batches = len(train_loader)
     
-    for batch in train_loader:
+    print(f"  Entrenando... (0/{total_batches} batches)", end='', flush=True)
+    
+    for batch_idx, batch in enumerate(train_loader, 1):
         images = batch.to(device)
         
         optimizer.zero_grad()
@@ -157,8 +160,15 @@ def train_epoch(model, train_loader, criterion, optimizer, device):
         
         total_loss += loss.item()
         num_batches += 1
+        
+        # Mostrar progreso cada 10 batches o en el último
+        if batch_idx % 10 == 0 or batch_idx == total_batches:
+            avg_loss = total_loss / num_batches
+            print(f"\r  Entrenando... ({batch_idx}/{total_batches} batches) | Loss: {loss.item():.6f} | Avg Loss: {avg_loss:.6f}", end='', flush=True)
     
-    return total_loss / num_batches if num_batches > 0 else 0.0
+    avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
+    print()  # Nueva línea después del progreso
+    return avg_loss
 
 
 def validate(model, val_loader, criterion, device):
@@ -166,16 +176,26 @@ def validate(model, val_loader, criterion, device):
     model.eval()
     total_loss = 0.0
     num_batches = 0
+    total_batches = len(val_loader)
+    
+    print(f"  Validando... (0/{total_batches} batches)", end='', flush=True)
     
     with torch.no_grad():
-        for batch in val_loader:
+        for batch_idx, batch in enumerate(val_loader, 1):
             images = batch.to(device)
             reconstructed = model(images)
             loss = criterion(reconstructed, images)
             total_loss += loss.item()
             num_batches += 1
+            
+            # Mostrar progreso cada 5 batches o en el último
+            if batch_idx % 5 == 0 or batch_idx == total_batches:
+                avg_loss = total_loss / num_batches
+                print(f"\r  Validando... ({batch_idx}/{total_batches} batches) | Avg Loss: {avg_loss:.6f}", end='', flush=True)
     
-    return total_loss / num_batches if num_batches > 0 else 0.0
+    avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
+    print()  # Nueva línea después del progreso
+    return avg_loss
 
 
 def main():
@@ -286,11 +306,17 @@ def main():
     img_size = args.img_size if args.img_size is not None else config.IMG_SIZE
     output_dir = args.output_dir if args.output_dir else "models"
     
-    # Dispositivo
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Dispositivo: {device}")
-    if device == "cuda":
+    # Dispositivo - Forzar GPU
+    if torch.cuda.is_available():
+        device = "cuda"
+        print(f"Dispositivo: {device} (GPU)")
         print(f"GPU: {torch.cuda.get_device_name(0)}")
+        print(f"Memoria GPU total: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
+        print(f"CUDA versión: {torch.version.cuda}")
+    else:
+        print("ADVERTENCIA: CUDA no está disponible. Se usará CPU (entrenamiento será más lento).")
+        print("Por favor, verifica que tengas una GPU compatible con CUDA instalada.")
+        device = "cpu"
     
     # Crear directorio para modelos
     os.makedirs(output_dir, exist_ok=True)
@@ -400,8 +426,10 @@ def main():
     }
     
     for epoch in range(1, args.epochs + 1):
-        print(f"\nÉpoca {epoch}/{args.epochs}")
-        train_loss = train_epoch(model, train_loader, criterion, optimizer, device)
+        print(f"\n{'='*70}")
+        print(f"ÉPOCA {epoch}/{args.epochs}")
+        print(f"{'='*70}")
+        train_loss = train_epoch(model, train_loader, criterion, optimizer, device, epoch, args.epochs)
         val_loss = validate(model, val_loader, criterion, device)
         
         # Guardar historial completo
@@ -416,7 +444,9 @@ def main():
             writer.add_scalar('Loss/Val', val_loss, epoch)
             writer.add_scalar('Learning_Rate', optimizer.param_groups[0]['lr'], epoch)
         
-        print(f"  Train Loss: {train_loss:.6f} | Val Loss: {val_loss:.6f}")
+        print(f"\n  Resultados de la época:")
+        print(f"    Train Loss: {train_loss:.6f}")
+        print(f"    Val Loss: {val_loss:.6f}")
         
         # Verificar mejora
         mejora = best_val_loss - val_loss
@@ -437,28 +467,37 @@ def main():
                     patience_counter = 0
                     model_path = os.path.join(output_dir, model_name)
                     torch.save(model.state_dict(), model_path)
-                    print(f"  Mejor modelo guardado: {model_path} (mejora relativa: {mejora_relativa*100:.4f}%)")
+                    print(f"    Mejora detectada: {mejora_relativa*100:.4f}% (>= {args.min_delta*100:.4f}%)")
+                    print(f"    Mejor modelo guardado: {model_path}")
+                    print(f"    Patience reset: 0/{args.patience}")
                 else:
                     # Aunque val_loss < best_val_loss, la mejora no es significativa
                     patience_counter += 1
-                    print(f"  Mejora insuficiente: {mejora_relativa*100:.6f}% < {args.min_delta*100:.4f}% (patience: {patience_counter}/{args.patience})")
+                    print(f"    Mejora insuficiente: {mejora_relativa*100:.6f}% < {args.min_delta*100:.4f}%")
+                    print(f"    Patience: {patience_counter}/{args.patience}")
             else:
                 # Sin early stopping, siempre actualizar
                 best_val_loss = val_loss
                 patience_counter = 0
                 model_path = os.path.join(output_dir, model_name)
                 torch.save(model.state_dict(), model_path)
-                print(f"  Mejor modelo guardado: {model_path}")
+                print(f"    Mejor modelo guardado: {model_path}")
         else:
             # No hay mejora
             patience_counter += 1
             if args.early_stopping:
-                print(f"  Sin mejora (patience: {patience_counter}/{args.patience})")
+                print(f"    Sin mejora - Patience: {patience_counter}/{args.patience}")
+            else:
+                print(f"    Sin mejora (mejor val loss: {best_val_loss:.6f})")
         
         # Early stopping
         if args.early_stopping and patience_counter >= args.patience:
-            print(f"\nEarly stopping activado: no hay mejora desde {args.patience} épocas")
+            print(f"\n{'='*70}")
+            print(f"EARLY STOPPING ACTIVADO")
+            print(f"{'='*70}")
+            print(f"No hay mejora desde {args.patience} épocas")
             print(f"Mejor val loss alcanzado: {best_val_loss:.6f} en época {epoch - args.patience}")
+            print(f"{'='*70}")
             break
     
     if writer is not None:
@@ -468,12 +507,18 @@ def main():
     history_path = os.path.join(output_dir, f"training_history_{model_name.replace('.pt', '')}_{timestamp}.json")
     with open(history_path, 'w', encoding='utf-8') as f:
         json.dump(history, f, indent=2, ensure_ascii=False)
-    print(f"Historial completo guardado: {history_path}")
     
-    print(f"\nEntrenamiento completado!")
+    print(f"\n{'='*70}")
+    print(f"ENTRENAMIENTO COMPLETADO")
+    print(f"{'='*70}")
     print(f"Épocas entrenadas: {len(history['train_loss'])}/{args.epochs}")
     print(f"Mejor val loss: {best_val_loss:.6f}")
+    print(f"Mejor época: {history['val_loss'].index(min(history['val_loss'])) + 1}")
     print(f"Modelo guardado en: {os.path.join(output_dir, model_name)}")
+    print(f"Historial completo guardado: {history_path}")
+    if writer is not None:
+        print(f"TensorBoard logs: runs/{run_name}")
+    print(f"{'='*70}")
 
 
 if __name__ == "__main__":
