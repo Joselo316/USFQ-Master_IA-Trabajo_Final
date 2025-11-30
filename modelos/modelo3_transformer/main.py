@@ -27,6 +27,7 @@ from modelos.modelo3_transformer.utils import (
     crear_overlay_con_metadatos
 )
 from modelos.modelo3_transformer.vit_feature_extractor import ViTFeatureExtractor
+from modelos.modelo3_transformer.classifiers import AnomalyClassifier
 
 
 def main():
@@ -136,14 +137,30 @@ def main():
     with open(args.modelo, 'rb') as f:
         modelo_data = pickle.load(f)
     
-    # El modelo contiene: features_normales, knn_model, estadisticas
+    # El modelo contiene: features_normales, classifier (o knn_model para compatibilidad), estadisticas
     features_normales = modelo_data['features_normales']
-    knn_model = modelo_data['knn_model']
-    estadisticas = modelo_data.get('estadisticas', {})
     
-    print("Modelo cargado correctamente.")
-    print(f"  Features normales: {features_normales.shape}")
-    print(f"  k-NN: {knn_model.n_neighbors} vecinos")
+    # Compatibilidad: puede tener 'classifier' (nuevo) o 'knn_model' (antiguo)
+    if 'classifier' in modelo_data:
+        classifier = modelo_data['classifier']
+        classifier_type = modelo_data.get('estadisticas', {}).get('classifier_type', 'knn')
+        print("Modelo cargado correctamente.")
+        print(f"  Features normales: {features_normales.shape}")
+        print(f"  Clasificador: {classifier_type}")
+        if classifier_type == 'knn' and hasattr(classifier, 'model'):
+            print(f"  k-NN: {classifier.model.n_neighbors} vecinos")
+    else:
+        # Código antiguo: usar knn_model
+        from modelos.modelo3_transformer.classifiers import KNNClassifier
+        knn_model = modelo_data['knn_model']
+        classifier = KNNClassifier(n_neighbors=knn_model.n_neighbors)
+        classifier.model = knn_model
+        classifier_type = 'knn'
+        print("Modelo cargado correctamente (formato antiguo).")
+        print(f"  Features normales: {features_normales.shape}")
+        print(f"  k-NN: {knn_model.n_neighbors} vecinos")
+    
+    estadisticas = modelo_data.get('estadisticas', {})
     
     # Inicializar extractor de features
     print(f"\nInicializando extractor de features ViT ({args.model_name})...")
@@ -175,11 +192,10 @@ def main():
     features = extractor.extraer_features(parches_array, mostrar_progreso=True)
     print(f"  Features extraídos: {features.shape}")
     
-    # Calcular distancias usando k-NN
-    print("  Calculando distancias con k-NN...")
-    distancias, indices = knn_model.kneighbors(features)
-    # Usar la distancia promedio a los k vecinos
-    distancias_promedio = np.mean(distancias, axis=1)
+    # Calcular scores usando el clasificador
+    print(f"  Calculando scores con {classifier_type}...")
+    scores = classifier.predict_scores(features)
+    distancias_promedio = scores  # Para compatibilidad con código existente
     
     print(f"  Distancias - min: {distancias_promedio.min():.4f}, "
           f"max: {distancias_promedio.max():.4f}, "

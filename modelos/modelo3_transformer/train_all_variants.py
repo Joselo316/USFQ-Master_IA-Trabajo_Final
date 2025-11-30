@@ -75,12 +75,12 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Este script entrena automáticamente 3 variantes del modelo 3:
-1. vit_knn_vit-base-patch16-224_k5.pkl - ViT Base con k=5
-2. vit_knn_vit-base-patch16-224_k10.pkl - ViT Base con k=10
-3. vit_knn_vit-large-patch16-224_k5.pkl - ViT Large con k=5
+1. ViT Base + k-NN (k=5) - Clasificador k-NN tradicional
+2. ViT Base + Isolation Forest - Clasificador basado en árboles
+3. ViT Base + One-Class SVM - Clasificador basado en SVM
 
 Todas las variantes usan la misma configuración base (data_dir, patch_size, etc.)
-pero diferentes modelos ViT o parámetros k-NN.
+pero diferentes clasificadores de anomalías.
         """
     )
     
@@ -168,28 +168,31 @@ pero diferentes modelos ViT o parámetros k-NN.
     
     if not args.skip_vit_base_k5:
         variantes.append({
-            'nombre': 'ViT Base k=5',
+            'nombre': 'ViT Base + k-NN',
             'args': {
                 'model_name': 'google/vit-base-patch16-224',
+                'classifier_type': 'knn',
                 'n_neighbors': 5
             }
         })
     
     if not args.skip_vit_base_k10:
         variantes.append({
-            'nombre': 'ViT Base k=10',
+            'nombre': 'ViT Base + Isolation Forest',
             'args': {
                 'model_name': 'google/vit-base-patch16-224',
-                'n_neighbors': 10
+                'classifier_type': 'isolation_forest',
+                'contamination': 0.1
             }
         })
     
     if not args.skip_vit_large_k5:
         variantes.append({
-            'nombre': 'ViT Large k=5',
+            'nombre': 'ViT Base + One-Class SVM',
             'args': {
-                'model_name': 'google/vit-large-patch16-224',
-                'n_neighbors': 5
+                'model_name': 'google/vit-base-patch16-224',
+                'classifier_type': 'one_class_svm',
+                'nu': 0.1
             }
         })
     

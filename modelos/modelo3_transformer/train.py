@@ -13,6 +13,8 @@ from typing import List, Tuple, Optional
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
+from modelos.modelo3_transformer.classifiers import crear_clasificador, AnomalyClassifier
+
 # Agregar rutas al path
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -51,7 +53,8 @@ def entrenar_modelo(
     patch_size: int = 224,
     overlap: float = 0.3,
     batch_size: int = 32,
-    n_neighbors: int = 5,
+    classifier_type: str = 'knn',
+    classifier_params: Optional[Dict] = None,
     usar_preprocesadas: bool = True
 ) -> bool:
     """
@@ -67,7 +70,9 @@ def entrenar_modelo(
     print(f"Modelo ViT: {model_name}")
     print(f"Patch size: {patch_size}")
     print(f"Overlap: {overlap*100:.1f}%")
-    print(f"k-NN neighbors: {n_neighbors}")
+    print(f"Clasificador: {classifier_type}")
+    if classifier_params:
+        print(f"Parámetros del clasificador: {classifier_params}")
     print(f"Usar preprocesadas: {usar_preprocesadas}")
     print(f"{'='*70}")
     
@@ -134,11 +139,18 @@ def entrenar_modelo(
     features_normales = np.vstack(todas_features)
     print(f"Features totales: {features_normales.shape}")
     
-    # Entrenar k-NN
-    print(f"\nEntrenando k-NN con {n_neighbors} vecinos...")
-    knn_model = NearestNeighbors(n_neighbors=n_neighbors, metric='euclidean')
-    knn_model.fit(features_normales)
-    print("k-NN entrenado correctamente.")
+    # Crear y entrenar clasificador
+    print(f"\nEntrenando clasificador {classifier_type}...")
+    if classifier_params is None:
+        classifier_params = {}
+    
+    # Para compatibilidad con código antiguo, si classifier_type es 'knn' y no hay params, usar defaults
+    if classifier_type == 'knn' and 'n_neighbors' not in classifier_params:
+        classifier_params['n_neighbors'] = 5
+    
+    classifier = crear_clasificador(classifier_type, **classifier_params)
+    classifier.fit(features_normales)
+    print(f"Clasificador {classifier_type} entrenado correctamente.")
     
     # Calcular estadísticas
     print("\nCalculando estadísticas...")
@@ -146,7 +158,8 @@ def entrenar_modelo(
         'num_imagenes': len(imagenes),
         'num_parches': len(todas_posiciones),
         'feature_dim': features_normales.shape[1],
-        'n_neighbors': n_neighbors,
+        'classifier_type': classifier_type,
+        'classifier_params': classifier_params or {},
         'model_name': model_name,
         'patch_size': patch_size,
         'overlap': overlap,
@@ -157,9 +170,13 @@ def entrenar_modelo(
     print(f"\nGuardando modelo en {output_path}...")
     modelo_data = {
         'features_normales': features_normales,
-        'knn_model': knn_model,
+        'classifier': classifier,  # Guardar el clasificador entrenado
         'estadisticas': estadisticas
     }
+    
+    # Mantener compatibilidad con código antiguo que espera 'knn_model'
+    if classifier_type == 'knn':
+        modelo_data['knn_model'] = classifier.model
     
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, 'wb') as f:
@@ -172,7 +189,7 @@ def entrenar_modelo(
     print(f"{'='*70}")
     print(f"Modelo guardado: {output_path}")
     print(f"Features normales: {features_normales.shape}")
-    print(f"k-NN: {n_neighbors} vecinos")
+    print(f"Clasificador: {classifier_type}")
     print(f"Tiempo total: {tiempo_total:.2f}s ({tiempo_total/60:.2f} min)")
     print(f"{'='*70}")
     
@@ -227,10 +244,29 @@ Ejemplo de uso:
         help='Tamaño de batch para ViT (default: 32)'
     )
     parser.add_argument(
+        '--classifier_type',
+        type=str,
+        default='knn',
+        choices=['knn', 'isolation_forest', 'one_class_svm', 'lof', 'elliptic_envelope'],
+        help='Tipo de clasificador (default: knn)'
+    )
+    parser.add_argument(
         '--n_neighbors',
         type=int,
         default=5,
-        help='Número de vecinos para k-NN (default: 5)'
+        help='Número de vecinos para k-NN/LOF (default: 5)'
+    )
+    parser.add_argument(
+        '--contamination',
+        type=float,
+        default=0.1,
+        help='Proporción esperada de outliers para Isolation Forest/LOF/Elliptic Envelope (default: 0.1)'
+    )
+    parser.add_argument(
+        '--nu',
+        type=float,
+        default=0.1,
+        help='Parámetro nu para One-Class SVM (default: 0.1)'
     )
     parser.add_argument(
         '--usar_preprocesadas',
@@ -256,9 +292,30 @@ Ejemplo de uso:
         print(f"ERROR: El directorio de datos no existe: {data_dir}")
         return
     
+    # Preparar parámetros del clasificador
+    classifier_params = {}
+    if args.classifier_type == 'knn' or args.classifier_type == 'lof':
+        classifier_params['n_neighbors'] = args.n_neighbors
+    if args.classifier_type in ['isolation_forest', 'lof', 'elliptic_envelope']:
+        classifier_params['contamination'] = args.contamination
+    if args.classifier_type == 'one_class_svm':
+        classifier_params['nu'] = args.nu
+    
     # Generar nombre del modelo según parámetros
     modelo_base = args.model_name.split('/')[-1]  # Ej: vit-base-patch16-224
-    nombre_modelo = f"vit_knn_{modelo_base}_k{args.n_neighbors}.pkl"
+    classifier_suffix = args.classifier_type
+    if args.classifier_type == 'knn':
+        classifier_suffix = f"knn_k{args.n_neighbors}"
+    elif args.classifier_type == 'lof':
+        classifier_suffix = f"lof_k{args.n_neighbors}"
+    elif args.classifier_type == 'isolation_forest':
+        classifier_suffix = f"iforest_c{args.contamination}"
+    elif args.classifier_type == 'one_class_svm':
+        classifier_suffix = f"ocsvm_nu{args.nu}"
+    elif args.classifier_type == 'elliptic_envelope':
+        classifier_suffix = f"elliptic_c{args.contamination}"
+    
+    nombre_modelo = f"vit_{classifier_suffix}_{modelo_base}.pkl"
     output_path = output_dir / nombre_modelo
     
     # Entrenar modelo
@@ -269,7 +326,8 @@ Ejemplo de uso:
         args.patch_size,
         args.overlap,
         args.batch_size,
-        args.n_neighbors,
+        args.classifier_type,
+        classifier_params,
         args.usar_preprocesadas
     )
     
