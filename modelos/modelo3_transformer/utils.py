@@ -102,28 +102,60 @@ def generar_parches_imagen(
 
 def procesar_imagen_inferencia(
     ruta_imagen: str,
-    patch_size: int = 224,
+    patch_size: Optional[int] = None,
     overlap: float = 0.0,
-    aplicar_preprocesamiento: bool = True
+    aplicar_preprocesamiento: bool = False,
+    usar_patches: bool = False,
+    img_size: Optional[int] = None
 ) -> Tuple[List[np.ndarray], List[Tuple[int, int]], Tuple[int, int]]:
     """
-    Procesa una imagen para inferencia: carga, preprocesa y genera parches.
+    Procesa una imagen para inferencia: carga, preprocesa y genera parches o resize completo.
     
     Args:
         ruta_imagen: Ruta a la imagen
-        patch_size: Tamaño de cada patch (cuadrado) en píxeles
+        patch_size: Tamaño de cada patch (cuadrado) en píxeles. Si None y usar_patches=False, se usa img_size
         overlap: Porcentaje de solapamiento entre parches (0.0 a 1.0)
         aplicar_preprocesamiento: Si True, aplica preprocesamiento de 3 canales
+        usar_patches: Si False, redimensiona imagen completa sin generar patches
+        img_size: Tamaño de imagen cuando NO se usan patches (por defecto: config.IMG_SIZE)
     
     Returns:
-        Tupla de (lista de parches, lista de posiciones (y, x), tamaño original (H, W))
+        Tupla de (lista de parches o [imagen_completa], lista de posiciones (y, x), tamaño original (H, W))
     """
+    import config
+    
     # Cargar imagen original para obtener tamaño
     img_original = cv2.imread(ruta_imagen, cv2.IMREAD_GRAYSCALE)
     if img_original is None:
         raise ValueError(f"No se pudo cargar la imagen: {ruta_imagen}")
     
     tamaño_orig = img_original.shape[:2]  # (H, W)
+    
+    # Si NO usar patches, redimensionar imagen completa
+    if not usar_patches:
+        if img_size is None:
+            img_size = config.IMG_SIZE
+        
+        # Aplicar preprocesamiento si se solicita
+        if aplicar_preprocesamiento:
+            img_procesada = cargar_y_preprocesar_3canales(ruta_imagen, tamaño_objetivo=(img_size, img_size))
+        else:
+            # Cargar imagen preprocesada (ya en 3 canales)
+            img_procesada = cv2.imread(ruta_imagen, cv2.IMREAD_COLOR)
+            if img_procesada is None:
+                raise ValueError(f"No se pudo cargar la imagen: {ruta_imagen}")
+            # Redimensionar
+            img_procesada = cv2.resize(img_procesada, (img_size, img_size), 
+                                      interpolation=cv2.INTER_LINEAR)
+            # Normalizar a [0, 1]
+            img_procesada = img_procesada.astype(np.float32) / 255.0
+        
+        # Retornar imagen completa como único "patch"
+        return [img_procesada], [(0, 0)], tamaño_orig
+    
+    # Modo patches (código original)
+    if patch_size is None:
+        patch_size = config.PATCH_SIZE
     
     # Aplicar preprocesamiento si se solicita
     if aplicar_preprocesamiento:

@@ -82,18 +82,30 @@ def main():
         help='Directorio donde guardar resultados (default: outputs/)'
     )
     parser.add_argument(
+        '--usar_patches',
+        action='store_true',
+        default=False,
+        help='Usar segmentación en patches (default: False, redimensiona imagen completa)'
+    )
+    parser.add_argument(
         '--patch_size',
         type=int,
         nargs=2,
         default=None,
         metavar=('H', 'W'),
-        help=f'Tamaño de los patches (default: {config.PATCH_SIZE} {config.PATCH_SIZE})'
+        help=f'Tamaño de los patches (solo si --usar_patches, default: {config.PATCH_SIZE} {config.PATCH_SIZE})'
     )
     parser.add_argument(
         '--overlap_percent',
         type=float,
         default=None,
-        help=f'Porcentaje de solapamiento entre patches 0.0-1.0 (default: {config.OVERLAP_RATIO})'
+        help=f'Porcentaje de solapamiento entre patches 0.0-1.0 (solo si --usar_patches, default: {config.OVERLAP_RATIO})'
+    )
+    parser.add_argument(
+        '--img_size',
+        type=int,
+        default=None,
+        help=f'Tamaño de imagen cuando NO se usan patches (default: {config.IMG_SIZE})'
     )
     parser.add_argument(
         '--backbone',
@@ -125,8 +137,8 @@ def main():
     parser.add_argument(
         '--aplicar_preprocesamiento',
         action='store_true',
-        default=True,
-        help='Aplicar preprocesamiento de 3 canales (default: True)'
+        default=False,
+        help='Aplicar preprocesamiento de 3 canales (default: False, imágenes ya preprocesadas)'
     )
 
     args = parser.parse_args()
@@ -176,18 +188,24 @@ def main():
     extractor = FeatureExtractor(modelo_base=args.backbone)
     print("Extractor inicializado.")
     
-    # Procesar imagen y generar patches
+    # Procesar imagen
     print(f"\nProcesando imagen: {args.image}...")
+    img_size = args.img_size if args.img_size is not None else config.IMG_SIZE
     patches, posiciones, tamaño_orig = procesar_imagen_inferencia(
         args.image,
-        tamaño_patch=patch_size,
-        overlap_percent=overlap_percent,
-        aplicar_preprocesamiento=args.aplicar_preprocesamiento
+        tamaño_patch=patch_size if args.usar_patches else None,
+        overlap_percent=overlap_percent if args.usar_patches else None,
+        tamaño_imagen=(img_size, img_size) if not args.usar_patches else None,
+        aplicar_preprocesamiento=args.aplicar_preprocesamiento,
+        usar_patches=args.usar_patches
     )
     
     num_parches = len(patches)
     print(f"  Imagen original: {tamaño_orig}")
-    print(f"  Patches generados: {num_parches}")
+    if args.usar_patches:
+        print(f"  Patches generados: {num_parches}")
+    else:
+        print(f"  Imagen redimensionada a: {img_size}x{img_size}")
     
     # Extraer features
     print("  Extrayendo features...")
@@ -210,9 +228,13 @@ def main():
     
     # Reconstruir mapa de anomalía
     print("  Reconstruyendo mapa de anomalía...")
-    mapa_anomalia = reconstruir_mapa_anomalia(
-        scores_combinados, posiciones, tamaño_orig, patch_size, args.interpolation_method
-    )
+    if args.usar_patches:
+        mapa_anomalia = reconstruir_mapa_anomalia(
+            scores_combinados, posiciones, tamaño_orig, patch_size, args.interpolation_method
+        )
+    else:
+        # Si no se usan patches, el score es único, crear mapa del tamaño de la imagen redimensionada
+        mapa_anomalia = np.full((img_size, img_size), scores_combinados[0], dtype=np.float32)
     
     # Normalizar mapa
     mapa_normalizado = normalizar_mapa(mapa_anomalia, metodo='percentile')

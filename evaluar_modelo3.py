@@ -90,12 +90,13 @@ def inferir_imagen(
     inicio = time.time()
     
     try:
-        # Procesar imagen y generar parches (aplica preprocesamiento automáticamente)
+        # Procesar imagen y generar parches
+        # Por defecto NO aplicar preprocesamiento (imágenes ya preprocesadas)
         parches, posiciones, tamaño_orig = procesar_imagen_inferencia(
             str(imagen_path),
             patch_size=patch_size,
             overlap=overlap,
-            aplicar_preprocesamiento=True  # Siempre aplicar preprocesamiento
+            aplicar_preprocesamiento=False  # Imágenes ya preprocesadas
         )
         
         # Convertir parches a array numpy

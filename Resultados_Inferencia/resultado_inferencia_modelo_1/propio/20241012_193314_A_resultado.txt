@@ -1,0 +1,16 @@
+RESULTADO DE DETECCIÓN DE ANOMALÍAS
+======================================================================
+Imagen: d:\Tesis_IA\TesisMDP\Inferencia\20241012_193314_A.png
+Estado: ANOMALÍA DETECTADA
+
+Estadísticas del error:
+  Error medio: 0.000191
+  Desviación estándar: 0.000503
+  Error máximo: 0.105342
+  Error mínimo: 0.000000
+
+Configuración del modelo:
+  Tipo: Modelo original (entrenado desde cero)
+
+Tiempo de inferencia: 0.32 segundos
+Número de parches: 1

@@ -1,0 +1,25 @@
+RESUMEN DE INFERENCIA MASIVA
+======================================================================
+Fecha: 2025-11-30 16:30:30
+Imágenes procesadas: 32
+Modelos utilizados: 3
+
+Modelo_Original:
+  Exitosas: 32/32
+  Fallidas: 0/32
+  Tiempo promedio: 3.42s
+  Tiempo total: 109.57s
+
+Modelo_ResNet18:
+  Exitosas: 32/32
+  Fallidas: 0/32
+  Tiempo promedio: 3.62s
+  Tiempo total: 115.96s
+
+Modelo_ResNet50:
+  Exitosas: 32/32
+  Fallidas: 0/32
+  Tiempo promedio: 4.05s
+  Tiempo total: 129.72s
+
+Tiempo total: 355.28s (5.92 min)

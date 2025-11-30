@@ -1,0 +1,16 @@
+RESULTADO DE DETECCIÓN DE ANOMALÍAS
+======================================================================
+Imagen: d:\Tesis_IA\TesisMDP\Inferencia\20241016_205517_A.png
+Estado: ANOMALÍA DETECTADA
+
+Estadísticas del error:
+  Error medio: 0.011157
+  Desviación estándar: 0.014362
+  Error máximo: 0.191209
+  Error mínimo: 0.000001
+
+Configuración del modelo:
+  Tipo: Transfer Learning (encoder: resnet50)
+
+Tiempo de inferencia: 0.93 segundos
+Número de parches: 1

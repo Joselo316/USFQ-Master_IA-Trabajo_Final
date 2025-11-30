@@ -106,12 +106,13 @@ def inferir_imagen(
     inicio = time.time()
     
     try:
-        # Procesar imagen y generar patches (aplica preprocesamiento automáticamente)
+        # Procesar imagen y generar patches
+        # Por defecto NO aplicar preprocesamiento (imágenes ya preprocesadas)
         patches, posiciones, tamaño_orig = procesar_imagen_inferencia(
             str(imagen_path),
             tamaño_patch=patch_size,
             overlap_percent=overlap_percent,
-            aplicar_preprocesamiento=True  # Siempre aplicar preprocesamiento
+            aplicar_preprocesamiento=False  # Imágenes ya preprocesadas
         )
         
         # Extraer features

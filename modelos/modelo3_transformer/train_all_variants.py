@@ -116,16 +116,10 @@ pero diferentes clasificadores de anomalías.
         help='Tamaño de batch para ViT (default: 32)'
     )
     parser.add_argument(
-        '--usar_preprocesadas',
+        '--aplicar_preprocesamiento',
         action='store_true',
-        default=True,
-        help='Usar imágenes preprocesadas (default: True)'
-    )
-    parser.add_argument(
-        '--usar_originales',
-        dest='usar_preprocesadas',
-        action='store_false',
-        help='Usar imágenes originales'
+        default=False,
+        help='Aplicar preprocesamiento de 3 canales (default: False, imágenes ya preprocesadas)'
     )
     parser.add_argument(
         '--skip_vit_base_k5',
@@ -158,10 +152,8 @@ pero diferentes clasificadores de anomalías.
         'batch_size': args.batch_size
     }
     
-    if args.usar_preprocesadas:
-        args_base['usar_preprocesadas'] = True
-    else:
-        args_base['usar_originales'] = True
+    if args.aplicar_preprocesamiento:
+        args_base['aplicar_preprocesamiento'] = True
     
     # Definir variantes
     variantes = []

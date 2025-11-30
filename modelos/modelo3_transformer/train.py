@@ -55,7 +55,9 @@ def entrenar_modelo(
     batch_size: int = 32,
     classifier_type: str = 'knn',
     classifier_params: Optional[Dict] = None,
-    usar_preprocesadas: bool = True
+    aplicar_preprocesamiento: bool = False,
+    usar_patches: bool = False,
+    img_size: Optional[int] = None
 ) -> bool:
     """
     Entrena un modelo de ViT + k-NN.
@@ -73,7 +75,7 @@ def entrenar_modelo(
     print(f"Clasificador: {classifier_type}")
     if classifier_params:
         print(f"Parámetros del clasificador: {classifier_params}")
-    print(f"Usar preprocesadas: {usar_preprocesadas}")
+    print(f"Aplicar preprocesamiento: {'Sí' if aplicar_preprocesamiento else 'No (imágenes ya preprocesadas)'}")
     print(f"{'='*70}")
     
     inicio = time.time()
@@ -109,9 +111,11 @@ def entrenar_modelo(
             # Procesar imagen y generar parches
             parches, posiciones, tamaño_orig = procesar_imagen_inferencia(
                 str(img_path),
-                patch_size=patch_size,
-                overlap=overlap,
-                aplicar_preprocesamiento=True  # Siempre aplicar preprocesamiento
+                patch_size=patch_size if usar_patches else None,
+                overlap=overlap if usar_patches else 0.0,
+                aplicar_preprocesamiento=aplicar_preprocesamiento,
+                usar_patches=usar_patches,
+                img_size=img_size
             )
             
             if len(parches) == 0:
@@ -269,16 +273,10 @@ Ejemplo de uso:
         help='Parámetro nu para One-Class SVM (default: 0.1)'
     )
     parser.add_argument(
-        '--usar_preprocesadas',
+        '--aplicar_preprocesamiento',
         action='store_true',
-        default=True,
-        help='Usar imágenes preprocesadas (default: True)'
-    )
-    parser.add_argument(
-        '--usar_originales',
-        dest='usar_preprocesadas',
-        action='store_false',
-        help='Usar imágenes originales'
+        default=False,
+        help='Aplicar preprocesamiento de 3 canales (default: False, imágenes ya preprocesadas)'
     )
     
     args = parser.parse_args()
@@ -328,7 +326,9 @@ Ejemplo de uso:
         args.batch_size,
         args.classifier_type,
         classifier_params,
-        args.usar_preprocesadas
+        args.aplicar_preprocesamiento,
+        args.usar_patches,
+        args.img_size if args.img_size is not None else config.IMG_SIZE
     )
     
     if not exito:

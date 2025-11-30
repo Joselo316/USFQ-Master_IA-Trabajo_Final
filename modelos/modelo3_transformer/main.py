@@ -54,16 +54,28 @@ def main():
         help='Directorio para guardar resultados (default: outputs/)'
     )
     parser.add_argument(
+        '--usar_patches',
+        action='store_true',
+        default=False,
+        help='Usar segmentación en parches (default: False, redimensiona imagen completa)'
+    )
+    parser.add_argument(
         '--patch_size',
         type=int,
         default=None,
-        help=f'Tamaño de los parches (default: {config.PATCH_SIZE})'
+        help=f'Tamaño de los parches (solo si --usar_patches, default: {config.PATCH_SIZE})'
     )
     parser.add_argument(
         '--overlap',
         type=float,
         default=None,
-        help=f'Solapamiento entre parches 0.0-1.0 (default: {config.OVERLAP_RATIO})'
+        help=f'Solapamiento entre parches 0.0-1.0 (solo si --usar_patches, default: {config.OVERLAP_RATIO})'
+    )
+    parser.add_argument(
+        '--img_size',
+        type=int,
+        default=None,
+        help=f'Tamaño de imagen cuando NO se usan parches (default: {config.IMG_SIZE})'
     )
     parser.add_argument(
         '--umbral',
@@ -92,8 +104,8 @@ def main():
     parser.add_argument(
         '--aplicar_preprocesamiento',
         action='store_true',
-        default=True,
-        help='Aplicar preprocesamiento de 3 canales (default: True)'
+        default=False,
+        help='Aplicar preprocesamiento de 3 canales (default: False, imágenes ya preprocesadas)'
     )
 
     args = parser.parse_args()
@@ -182,7 +194,10 @@ def main():
     
     num_parches = len(parches)
     print(f"  Imagen original: {tamaño_orig}")
-    print(f"  Parches generados: {num_parches}")
+    if args.usar_patches:
+        print(f"  Parches generados: {num_parches}")
+    else:
+        print(f"  Imagen redimensionada a: {img_size}x{img_size}")
     
     # Convertir parches a array numpy
     parches_array = np.array(parches)
