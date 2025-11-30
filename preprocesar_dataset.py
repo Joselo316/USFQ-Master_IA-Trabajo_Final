@@ -161,9 +161,11 @@ Ejemplo de uso:
     )
     parser.add_argument(
         '--redimensionar',
-        action='store_true',
+        type=lambda x: (str(x).lower() in ['true', '1', 'yes', 'on']),
         default=True,
-        help='Redimensionar imágenes antes del preprocesamiento (default: True, 256x256)'
+        nargs='?',
+        const=True,
+        help='Redimensionar imágenes antes del preprocesamiento (default: True, 256x256). Usa --no-redimensionar para desactivar.'
     )
     parser.add_argument(
         '--no-redimensionar',
