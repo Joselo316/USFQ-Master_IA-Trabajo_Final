@@ -258,7 +258,7 @@ Ejemplo de uso:
     
     # Generar nombre del modelo según parámetros
     modelo_base = args.model_name.split('/')[-1]  # Ej: vit-base-patch16-224
-    nombre_modelo = f"vit_knn_{modelo_base}_k{n_neighbors}.pkl"
+    nombre_modelo = f"vit_knn_{modelo_base}_k{args.n_neighbors}.pkl"
     output_path = output_dir / nombre_modelo
     
     # Entrenar modelo
