@@ -113,7 +113,79 @@ Cada canal se reescala al intervalo [0, 255] y se devuelve como imagen de 3 cana
 
 Este script elimina bordes negros y corrige la inclinación de los tableros. **Ya fue aplicado a todas las imágenes del dataset**, por lo que no necesita ejecutarse nuevamente. Se incluye en el repositorio solo como referencia.
 
-## Uso
+## Entrenamiento
+
+### Entrenar todos los modelos a la vez
+
+```bash
+# Desde la raíz del proyecto
+python train_all_models.py --all --data_dir "ruta/al/dataset"
+```
+
+### Entrenar modelos individuales
+
+#### Modelo 1: Autoencoder
+
+```bash
+cd modelos/modelo1_autoencoder
+python train.py --data_dir "ruta/al/dataset" [opciones]
+```
+
+Opciones principales:
+- `--data_dir`: Directorio raíz con carpetas 0-9 (default: desde config.py)
+- `--use_segmentation`: Usar segmentación en parches
+- `--patch_size`: Tamaño de parche cuando se usa segmentación (default: 256)
+- `--overlap_ratio`: Solapamiento entre parches (default: 0.3)
+- `--img_size`: Tamaño cuando NO se usa segmentación (default: 256)
+- `--batch_size`: Tamaño de batch (default: 32)
+- `--epochs`: Número de épocas (default: 50)
+- `--lr`: Learning rate (default: 1e-3)
+- `--use_transfer_learning`: Usar transfer learning (encoder ResNet preentrenado)
+- `--encoder_name`: Encoder para transfer learning (resnet18, resnet34, resnet50)
+- `--freeze_encoder`: Congelar encoder en transfer learning (default: True)
+- `--output_dir`: Directorio para guardar modelo (default: models/)
+
+Ejemplos:
+```bash
+# Modelo original con segmentación
+python train.py --data_dir "../../dataset/clases" --use_segmentation --patch_size 256 --overlap_ratio 0.3 --epochs 50
+
+# Modelo con transfer learning (ResNet18)
+python train.py --data_dir "../../dataset/clases" --use_segmentation --use_transfer_learning --encoder_name resnet18 --freeze_encoder
+
+# Modelo sin segmentación (imagen completa)
+python train.py --data_dir "../../dataset/clases" --img_size 256 --epochs 50
+```
+
+#### Modelo 2: Features
+
+```bash
+cd modelos/modelo2_features
+python train.py --data "ruta/al/dataset" [opciones]
+```
+
+**Nota**: El script de entrenamiento del modelo 2 debe ser creado. Consulta la documentación original del modelo.
+
+#### Modelo 3: Vision Transformer
+
+```bash
+cd modelos/modelo3_transformer
+python train.py --datos "ruta/al/dataset" [opciones]
+```
+
+**Nota**: El script de entrenamiento del modelo 3 debe ser creado. Consulta la documentación original del modelo.
+
+### Entrenar modelos seleccionados
+
+```bash
+# Entrenar solo modelo 1 y 2
+python train_all_models.py --model1 --model2 --data_dir "ruta/al/dataset"
+
+# Entrenar modelo 1 con transfer learning
+python train_all_models.py --model1 --model1_transfer_learning --model1_encoder resnet50 --data_dir "ruta/al/dataset"
+```
+
+## Uso (Inferencia)
 
 ### Modelo 1: Autoencoder
 
