@@ -502,54 +502,79 @@ Requisitos principales:
 
 5. **Comparación justa**: Al usar el mismo preprocesamiento, los tres modelos procesan exactamente las mismas imágenes, permitiendo una comparación justa de sus resultados.
 
-## Inferencia Masiva (Modelo 1)
+## Inferencia Masiva
 
-Para inferir todas las imágenes de una carpeta con los 3 modelos del modelo1:
+Para inferir todas las imágenes de una carpeta con un modelo específico:
 
 ```bash
 # Desde la raíz del proyecto
-python inferir_todas_imagenes.py
+# Modelo 1 (Autoencoder)
+python inferir_todas_imagenes.py --modelo 1
+
+# Modelo 2 (Features)
+python inferir_todas_imagenes.py --modelo 2
+
+# Modelo 3 (Transformer)
+python inferir_todas_imagenes.py --modelo 3
 ```
 
 Este script:
 - Procesa todas las imágenes en la carpeta `Inferencia/`
-- Ejecuta inferencia con los 3 modelos (normal, ResNet18, ResNet50)
-- Guarda resultados en carpetas separadas dentro de `Resultados_Inferencia/`
+- Ejecuta inferencia con todas las variantes disponibles del modelo seleccionado
+- Guarda resultados en carpetas organizadas: `resultado_inferencia_modelo_X/variante/`
 - Cada imagen incluye el tiempo de inferencia en los metadatos
 
-Opciones:
+**Opciones principales:**
+- `--modelo`: Modelo a usar (1, 2 o 3) - **REQUERIDO**
 - `--input_dir`: Directorio con imágenes (default: Inferencia/)
-- `--output_dir`: Directorio de salida (default: Resultados_Inferencia/)
-- `--use_segmentation`: Usar segmentación en parches
-- `--skip_normal`: Saltar modelo original
-- `--skip_resnet18`: Saltar modelo ResNet18
-- `--skip_resnet50`: Saltar modelo ResNet50
+- `--output_dir`: Directorio base de salida (default: Resultados_Inferencia/resultado_inferencia_modelo_X/)
+- `--modelos_dir`: Directorio donde están los modelos (default según modelo seleccionado)
+- `--use_segmentation`: Usar segmentación en parches (solo modelo 1)
+- `--patch_size`: Tamaño de parche (default: 256)
+- `--overlap_ratio`: Solapamiento entre parches (default: 0.3)
+- `--img_size`: Tamaño de imagen cuando NO se usa segmentación (default: 256)
 
-Ejemplo:
+**Ejemplos:**
+
 ```bash
-# Inferir todas las imágenes con los 3 modelos
-python inferir_todas_imagenes.py
+# Modelo 1: Inferir con todas las variantes (propio, resnet18, resnet50)
+python inferir_todas_imagenes.py --modelo 1
 
-# Solo con modelo ResNet18 y ResNet50
-python inferir_todas_imagenes.py --skip_normal
+# Modelo 1: Con segmentación en parches
+python inferir_todas_imagenes.py --modelo 1 --use_segmentation --patch_size 256 --overlap_ratio 0.3
 
-# Con segmentación en parches
-python inferir_todas_imagenes.py --use_segmentation --patch_size 256 --overlap_ratio 0.3
+# Modelo 2: Inferir con todas las variantes disponibles
+python inferir_todas_imagenes.py --modelo 2
+
+# Modelo 3: Inferir con ViT
+python inferir_todas_imagenes.py --modelo 3
+
+# Directorio personalizado
+python inferir_todas_imagenes.py --modelo 1 --input_dir "E:/Dataset/test" --output_dir "E:/Resultados"
 ```
 
-Estructura de salida:
+**Estructura de salida:**
+
 ```
 Resultados_Inferencia/
-├── Modelo_Original/
-│   ├── imagen1_reconstruction.png
-│   ├── imagen1_anomaly_map.png
-│   ├── imagen1_overlay.png
-│   └── ...
-├── Modelo_ResNet18/
-│   └── ...
-└── Modelo_ResNet50/
-    └── ...
+├── resultado_inferencia_modelo_1/
+│   ├── propio/
+│   │   ├── imagen1_reconstruction.png
+│   │   ├── imagen1_anomaly_map.png
+│   │   └── ...
+│   ├── resnet18/
+│   │   └── ...
+│   └── resnet50/
+│       └── ...
+├── resultado_inferencia_modelo_2/
+│   ├── resnet18/
+│   ├── resnet50/
+│   └── wide_resnet50_2/
+└── resultado_inferencia_modelo_3/
+    └── vit/
 ```
+
+**Nota:** El script detecta automáticamente qué variantes están disponibles según los modelos entrenados encontrados en el directorio `models/` de cada modelo.
 
 ## Ejecutar todos los modelos
 
