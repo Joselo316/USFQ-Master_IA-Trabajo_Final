@@ -30,7 +30,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "preprocesamiento"))
 import config
 from modelos.modelo1_autoencoder.model_autoencoder import ConvAutoencoder
 from modelos.modelo1_autoencoder.model_autoencoder_transfer import AutoencoderTransferLearning
-from preprocesamiento import cargar_y_preprocesar_3canales
+from preprocesamiento.preprocesamiento import preprocesar_imagen_3canales
 
 # Rutas
 ETIQUETADAS_DIR = PROJECT_ROOT / "etiquetadas"
@@ -85,41 +85,34 @@ def inferir_imagen(
     inicio = time.time()
     
     try:
-        if usar_segmentacion:
-            # Modo parches (no implementado en esta versión simplificada)
-            # Por ahora, redimensionar imagen completa
-            img_original = cv2.imread(str(imagen_path), cv2.IMREAD_GRAYSCALE)
-            if img_original is None:
-                raise ValueError(f"No se pudo cargar: {imagen_path}")
-            
-            img_resized = cv2.resize(img_original, (img_size, img_size), interpolation=cv2.INTER_LINEAR)
-            img_3canales = cargar_y_preprocesar_3canales(img_resized, tamaño_objetivo=(img_size, img_size))
-            img_normalized = img_3canales.astype(np.float32) / 255.0
-            
-            image_tensor = torch.from_numpy(img_normalized).permute(2, 0, 1).unsqueeze(0).to(device)
-            
-            with torch.no_grad():
-                reconstruction = model(image_tensor)
-            
-            reconstruction_np = reconstruction.cpu().squeeze().permute(1, 2, 0).numpy()
-            error_map = np.mean((reconstruction_np - img_normalized) ** 2, axis=2)
-        else:
-            # Modo resize (imagen completa)
-            img_original = cv2.imread(str(imagen_path), cv2.IMREAD_GRAYSCALE)
-            if img_original is None:
-                raise ValueError(f"No se pudo cargar: {imagen_path}")
-            
-            img_resized = cv2.resize(img_original, (img_size, img_size), interpolation=cv2.INTER_LINEAR)
-            img_3canales = cargar_y_preprocesar_3canales(img_resized, tamaño_objetivo=(img_size, img_size))
-            img_normalized = img_3canales.astype(np.float32) / 255.0
-            
-            image_tensor = torch.from_numpy(img_normalized).permute(2, 0, 1).unsqueeze(0).to(device)
-            
-            with torch.no_grad():
-                reconstruction = model(image_tensor)
-            
-            reconstruction_np = reconstruction.cpu().squeeze().permute(1, 2, 0).numpy()
-            error_map = np.mean((reconstruction_np - img_normalized) ** 2, axis=2)
+        # Cargar imagen en escala de grises
+        img_original = cv2.imread(str(imagen_path), cv2.IMREAD_GRAYSCALE)
+        if img_original is None:
+            raise ValueError(f"No se pudo cargar: {imagen_path}")
+        
+        # Redimensionar imagen
+        img_resized = cv2.resize(img_original, (img_size, img_size), interpolation=cv2.INTER_LINEAR)
+        
+        # Aplicar preprocesamiento de 3 canales (igual que main.py)
+        # Esto aplica: normalización, filtro homomórfico, corrección de fondo,
+        # operaciones morfológicas y unsharp mask
+        img_3canales = preprocesar_imagen_3canales(img_resized)
+        
+        # Normalizar a [0, 1] para el modelo
+        img_normalized = img_3canales.astype(np.float32) / 255.0
+        
+        # Convertir a tensor: (1, 3, H, W)
+        image_tensor = torch.from_numpy(img_normalized).permute(2, 0, 1).unsqueeze(0).to(device)
+        
+        # Inferencia con el modelo
+        with torch.no_grad():
+            reconstruction = model(image_tensor)
+        
+        # Convertir reconstrucción a numpy: (H, W, 3)
+        reconstruction_np = reconstruction.cpu().squeeze().permute(1, 2, 0).numpy()
+        
+        # Calcular error de reconstrucción (promedio sobre canales)
+        error_map = np.mean((reconstruction_np - img_normalized) ** 2, axis=2)
         
         is_anomaly, estadisticas = detectar_anomalia(error_map)
         tiempo = time.time() - inicio
