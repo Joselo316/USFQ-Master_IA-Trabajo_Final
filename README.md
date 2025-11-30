@@ -36,8 +36,11 @@ TesisMDP/
 ## Descripción de los Modelos
 
 ### Modelo 1: Autoencoder Convolucional
-- **Tipo**: Autoencoder convolucional
+- **Tipo**: Autoencoder convolucional (con opción de transfer learning)
 - **Funcionamiento**: Aprende a reconstruir imágenes normales. El error de reconstrucción indica anomalías.
+- **Variantes**:
+  - **Original**: Arquitectura personalizada entrenada desde cero
+  - **Transfer Learning**: Encoder ResNet preentrenado (ResNet18/34/50) + decoder entrenado
 - **Entrada**: Imágenes de 3 canales (resultado del preprocesamiento común)
 - **Salida**: Mapa de anomalía, reconstrucción y overlay
 
@@ -127,11 +130,22 @@ Opciones principales:
 - `--patch_size`: Tamaño de parche cuando se usa segmentación (default: 256)
 - `--overlap_ratio`: Solapamiento entre parches (default: 0.3)
 - `--img_size`: Tamaño cuando NO se usa segmentación (default: 256)
+- `--use_transfer_learning`: Usar modelo con transfer learning (encoder ResNet preentrenado)
+- `--encoder_name`: Nombre del encoder cuando se usa transfer learning (resnet18, resnet34, resnet50, default: resnet18)
 
-Ejemplo:
+Ejemplos:
 ```bash
+# Modelo original (entrenado desde cero)
 python main.py --image_path "../../dataset/imagen.png" --model_path "models/autoencoder_normal.pt" --use_segmentation --patch_size 256 --overlap_ratio 0.3
+
+# Modelo con transfer learning (ResNet18)
+python main.py --image_path "../../dataset/imagen.png" --model_path "models/autoencoder_resnet18.pt" --use_transfer_learning --encoder_name resnet18 --use_segmentation
+
+# Modelo con transfer learning (ResNet50)
+python main.py --image_path "../../dataset/imagen.png" --model_path "models/autoencoder_resnet50.pt" --use_transfer_learning --encoder_name resnet50
 ```
+
+**Nota sobre Transfer Learning**: El modelo con transfer learning usa un encoder ResNet preentrenado en ImageNet. Ver `README_TRANSFER_LEARNING.md` para más detalles.
 
 ### Modelo 2: Features
 

@@ -26,6 +26,7 @@ from modelos.modelo1_autoencoder.utils import (
     guardar_resultado_con_metadatos
 )
 from modelos.modelo1_autoencoder.model_autoencoder import ConvAutoencoder
+from modelos.modelo1_autoencoder.model_autoencoder_transfer import AutoencoderTransferLearning
 
 
 def save_anomaly_map(error_map: np.ndarray, output_path: str, tiempo_inferencia: float, num_parches: int):
@@ -140,6 +141,18 @@ def main():
         default=None,
         help=f'Tamaño de imagen cuando NO se usa segmentación (default: {config.IMG_SIZE})'
     )
+    parser.add_argument(
+        '--use_transfer_learning',
+        action='store_true',
+        help='Usar modelo con transfer learning (encoder ResNet preentrenado)'
+    )
+    parser.add_argument(
+        '--encoder_name',
+        type=str,
+        default='resnet18',
+        choices=['resnet18', 'resnet34', 'resnet50'],
+        help='Nombre del encoder preentrenado cuando se usa transfer learning (default: resnet18)'
+    )
 
     args = parser.parse_args()
     
@@ -177,8 +190,20 @@ def main():
     
     # Cargar modelo
     print(f"Cargando modelo desde {args.model_path}...")
-    # El modelo espera 3 canales debido al preprocesamiento
-    model = ConvAutoencoder(in_channels=3, feature_dims=64).to(device)
+    
+    if args.use_transfer_learning:
+        print(f"  Usando modelo con transfer learning (encoder: {args.encoder_name})")
+        # El modelo espera 3 canales debido al preprocesamiento
+        model = AutoencoderTransferLearning(
+            encoder_name=args.encoder_name,
+            in_channels=3,
+            freeze_encoder=True  # En inferencia, el encoder está congelado
+        ).to(device)
+    else:
+        print("  Usando modelo original (entrenado desde cero)")
+        # El modelo espera 3 canales debido al preprocesamiento
+        model = ConvAutoencoder(in_channels=3, feature_dims=64).to(device)
+    
     model.load_state_dict(torch.load(args.model_path, map_location=device))
     model.eval()
     print("Modelo cargado correctamente.")
@@ -394,6 +419,11 @@ def main():
         f.write(f"  Desviación estándar: {error_std:.6f}\n")
         f.write(f"  Error máximo: {error_max:.6f}\n")
         f.write(f"  Error mínimo: {error_min:.6f}\n")
+        f.write(f"\nConfiguración del modelo:\n")
+        if args.use_transfer_learning:
+            f.write(f"  Tipo: Transfer Learning (encoder: {args.encoder_name})\n")
+        else:
+            f.write(f"  Tipo: Modelo original (entrenado desde cero)\n")
         f.write(f"\nTiempo de inferencia: {tiempo_total:.2f} segundos\n")
         f.write(f"Número de parches: {num_parches}\n")
     
@@ -402,6 +432,10 @@ def main():
     print("\n" + "="*70)
     print("RESUMEN DEL PROCESO:")
     print("="*70)
+    if args.use_transfer_learning:
+        print(f"Modelo: Autoencoder con Transfer Learning (encoder: {args.encoder_name})")
+    else:
+        print(f"Modelo: Autoencoder original (entrenado desde cero)")
     print(f"Modo de procesamiento: {'PARCHES (segmentación)' if modo_procesamiento == 'parches' else 'RESIZE (redimensionar)'}")
     if modo_procesamiento == "parches":
         print(f"Número de parches generados: {num_parches}")
