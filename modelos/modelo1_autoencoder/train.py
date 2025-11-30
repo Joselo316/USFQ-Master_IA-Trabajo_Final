@@ -135,11 +135,21 @@ class GoodBoardsDataset(Dataset):
             patch_tensor = torch.from_numpy(patch).permute(2, 0, 1).float()
             return patch_tensor
         else:
-            # Cargar imagen completa, redimensionar y aplicar preprocesamiento de 3 canales
-            # cargar_y_preprocesar_3canales devuelve imagen en [0, 255] (uint8)
-            img_3canales = cargar_y_preprocesar_3canales(str(img_path), tamaño_objetivo=(self.img_size, self.img_size))
-            # Normalizar a [0, 1] y convertir a float
-            img_normalized = img_3canales.astype(np.float32) / 255.0
+            # Cargar imagen completa
+            # Si la imagen ya está preprocesada (3 canales), solo cargar y normalizar
+            # Si no, aplicar preprocesamiento
+            img_cargada = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
+            if img_cargada is not None and img_cargada.shape[2] == 3:
+                # Imagen ya preprocesada (3 canales), solo redimensionar y normalizar
+                if img_cargada.shape[0] != self.img_size or img_cargada.shape[1] != self.img_size:
+                    img_cargada = cv2.resize(img_cargada, (self.img_size, self.img_size), interpolation=cv2.INTER_LINEAR)
+                img_normalized = img_cargada.astype(np.float32) / 255.0
+            else:
+                # Imagen original, aplicar preprocesamiento
+                # cargar_y_preprocesar_3canales devuelve imagen en [0, 255] (uint8)
+                img_3canales = cargar_y_preprocesar_3canales(str(img_path), tamaño_objetivo=(self.img_size, self.img_size))
+                img_normalized = img_3canales.astype(np.float32) / 255.0
+            
             # Convertir a tensor: (H, W, 3) -> (3, H, W)
             img_tensor = torch.from_numpy(img_normalized).permute(2, 0, 1).float()
             return img_tensor
@@ -263,7 +273,7 @@ def main():
     parser.add_argument(
         '--batch_size',
         type=int,
-        default=64,
+        default=128,
         help='Tamaño del batch (default: 64, aumentar para mejor uso de GPU)'
     )
     parser.add_argument(
@@ -378,7 +388,7 @@ def main():
     
     # Crear DataLoaders con optimizaciones para GPU
     # Aumentar num_workers para paralelizar carga de datos
-    num_workers = min(8, os.cpu_count() or 1)  # Usar hasta 8 workers o el número de CPUs disponibles
+    num_workers = min(16, os.cpu_count() or 1)  # Usar hasta 16 workers o el número de CPUs disponibles
     prefetch_factor = 2  # Pre-cargar 2 batches por worker
     
     train_loader = DataLoader(
