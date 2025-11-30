@@ -253,6 +253,23 @@ def main():
         default=None,
         help='Directorio para guardar modelo (default: models/)'
     )
+    parser.add_argument(
+        '--early_stopping',
+        action='store_true',
+        help='Activar early stopping (detener si no hay mejora)'
+    )
+    parser.add_argument(
+        '--patience',
+        type=int,
+        default=10,
+        help='Paciencia para early stopping (épocas sin mejora, default: 10)'
+    )
+    parser.add_argument(
+        '--min_delta',
+        type=float,
+        default=0.0001,
+        help='Mejora mínima relativa para considerar mejora (default: 0.0001)'
+    )
     
     args = parser.parse_args()
     
@@ -342,31 +359,108 @@ def main():
     
     # Entrenamiento
     print(f"\nIniciando entrenamiento por {args.epochs} épocas...")
+    if args.early_stopping:
+        print(f"Early stopping activado: paciencia={args.patience}, min_delta={args.min_delta} ({args.min_delta*100:.4f}% mejora mínima relativa)")
+    else:
+        print("Early stopping desactivado (entrenará todas las épocas)")
+    
     best_val_loss = float('inf')
-    history = {'train_loss': [], 'val_loss': []}
+    patience_counter = 0
+    history = {
+        'train_loss': [],
+        'val_loss': [],
+        'epoch': [],
+        'learning_rate': [],
+        'best_val_loss': [],
+        'config': {
+            'use_segmentation': args.use_segmentation,
+            'patch_size': patch_size,
+            'overlap_ratio': overlap_ratio,
+            'img_size': img_size,
+            'batch_size': args.batch_size,
+            'epochs': args.epochs,
+            'lr': args.lr,
+            'val_split': args.val_split,
+            'use_transfer_learning': args.use_transfer_learning,
+            'encoder_name': args.encoder_name if args.use_transfer_learning else None,
+            'freeze_encoder': args.freeze_encoder if args.use_transfer_learning else None,
+            'early_stopping': args.early_stopping,
+            'patience': args.patience if args.early_stopping else None,
+            'min_delta': args.min_delta if args.early_stopping else None
+        }
+    }
     
     for epoch in range(1, args.epochs + 1):
         print(f"\nÉpoca {epoch}/{args.epochs}")
         train_loss = train_epoch(model, train_loader, criterion, optimizer, device)
         val_loss = validate(model, val_loader, criterion, device)
         
-        history['train_loss'].append(train_loss)
-        history['val_loss'].append(val_loss)
+        # Guardar historial completo
+        history['train_loss'].append(float(train_loss))
+        history['val_loss'].append(float(val_loss))
+        history['epoch'].append(epoch)
+        history['learning_rate'].append(optimizer.param_groups[0]['lr'])
+        history['best_val_loss'].append(float(best_val_loss))
         
         writer.add_scalar('Loss/Train', train_loss, epoch)
         writer.add_scalar('Loss/Val', val_loss, epoch)
+        writer.add_scalar('Learning_Rate', optimizer.param_groups[0]['lr'], epoch)
         
         print(f"  Train Loss: {train_loss:.6f} | Val Loss: {val_loss:.6f}")
         
+        # Verificar mejora
+        mejora = best_val_loss - val_loss
+        mejora_relativa = mejora / best_val_loss if best_val_loss > 0 and best_val_loss != float('inf') else 0
+        
         # Guardar mejor modelo
         if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            model_path = os.path.join(output_dir, model_name)
-            torch.save(model.state_dict(), model_path)
-            print(f"  Mejor modelo guardado: {model_path}")
+            # Calcular mejora relativa antes de actualizar best_val_loss
+            if best_val_loss != float('inf'):
+                mejora_relativa = (best_val_loss - val_loss) / best_val_loss
+            else:
+                mejora_relativa = 1.0  # Primera mejora siempre es significativa
+            
+            # Verificar si la mejora es significativa (early stopping)
+            if args.early_stopping:
+                if mejora_relativa >= args.min_delta:
+                    best_val_loss = val_loss
+                    patience_counter = 0
+                    model_path = os.path.join(output_dir, model_name)
+                    torch.save(model.state_dict(), model_path)
+                    print(f"  Mejor modelo guardado: {model_path} (mejora relativa: {mejora_relativa*100:.4f}%)")
+                else:
+                    # Aunque val_loss < best_val_loss, la mejora no es significativa
+                    patience_counter += 1
+                    print(f"  Mejora insuficiente: {mejora_relativa*100:.6f}% < {args.min_delta*100:.4f}% (patience: {patience_counter}/{args.patience})")
+            else:
+                # Sin early stopping, siempre actualizar
+                best_val_loss = val_loss
+                patience_counter = 0
+                model_path = os.path.join(output_dir, model_name)
+                torch.save(model.state_dict(), model_path)
+                print(f"  Mejor modelo guardado: {model_path}")
+        else:
+            # No hay mejora
+            patience_counter += 1
+            if args.early_stopping:
+                print(f"  Sin mejora (patience: {patience_counter}/{args.patience})")
+        
+        # Early stopping
+        if args.early_stopping and patience_counter >= args.patience:
+            print(f"\nEarly stopping activado: no hay mejora desde {args.patience} épocas")
+            print(f"Mejor val loss alcanzado: {best_val_loss:.6f} en época {epoch - args.patience}")
+            break
     
     writer.close()
+    
+    # Guardar historial completo en JSON
+    history_path = os.path.join(output_dir, f"training_history_{model_name.replace('.pt', '')}_{timestamp}.json")
+    with open(history_path, 'w', encoding='utf-8') as f:
+        json.dump(history, f, indent=2, ensure_ascii=False)
+    print(f"Historial completo guardado: {history_path}")
+    
     print(f"\nEntrenamiento completado!")
+    print(f"Épocas entrenadas: {len(history['train_loss'])}/{args.epochs}")
     print(f"Mejor val loss: {best_val_loss:.6f}")
     print(f"Modelo guardado en: {os.path.join(output_dir, model_name)}")
 
