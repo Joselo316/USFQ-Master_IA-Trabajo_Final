@@ -172,6 +172,7 @@ def entrenar_modelo(
         
         # Acumular patches
         patches_acumulados = []
+        total_patches_en_lote = 0
         
         for img_idx, img_path in enumerate(batch_imagenes):
             if (img_idx + 1) % 100 == 0:
@@ -188,6 +189,7 @@ def entrenar_modelo(
             
             if len(patches) > 0:
                 patches_acumulados.extend(patches)
+                total_patches_en_lote += len(patches)
             
             # Extraer features cuando se alcanza el límite
             if len(patches_acumulados) >= max_patches_per_feature_batch:
@@ -226,8 +228,8 @@ def entrenar_modelo(
             del patches_acumulados, patches_array, features_batch
             gc.collect()
         
-        total_patches_procesados += len(patches_acumulados) if 'patches_acumulados' in locals() else 0
-        logger.info(f"  Lote {batch_idx + 1} completado.")
+        total_patches_procesados += total_patches_en_lote
+        logger.info(f"  Lote {batch_idx + 1} completado. Patches procesados: {total_patches_en_lote}, Total acumulado: {total_patches_procesados}")
     
     # Concatenar todos los features acumulados
     logger.info("\nConcatenando features de todos los lotes...")
