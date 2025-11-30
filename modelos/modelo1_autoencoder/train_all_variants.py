@@ -13,6 +13,11 @@ import time
 from pathlib import Path
 from datetime import datetime
 
+# Agregar rutas al path para importar config
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+import config
+
 # Ruta al script de entrenamiento
 TRAIN_SCRIPT = Path(__file__).parent / "train.py"
 
@@ -83,7 +88,7 @@ pero diferentes arquitecturas de modelo.
         '--data_dir',
         type=str,
         default=None,
-        help='Directorio raíz de los datos (default: desde config.py)'
+        help=f'Directorio raíz de los datos (default: {config.DATASET_PATH})'
     )
     parser.add_argument(
         '--use_segmentation',
@@ -175,11 +180,6 @@ pero diferentes arquitecturas de modelo.
     
     # Obtener data_dir desde config si no se especifica
     if args.data_dir is None:
-        import sys
-        from pathlib import Path
-        PROJECT_ROOT = Path(__file__).parent.parent.parent
-        sys.path.insert(0, str(PROJECT_ROOT))
-        import config
         args.data_dir = config.DATASET_PATH
     
     # Preparar argumentos base comunes
