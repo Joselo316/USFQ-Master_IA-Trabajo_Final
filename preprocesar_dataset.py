@@ -166,7 +166,7 @@ Ejemplo de uso:
         help='Redimensionar imágenes antes del preprocesamiento (default: True, 256x256)'
     )
     parser.add_argument(
-        '--no_redimensionar',
+        '--no-redimensionar',
         dest='redimensionar',
         action='store_false',
         help='NO redimensionar imágenes (mantener tamaño original)'
