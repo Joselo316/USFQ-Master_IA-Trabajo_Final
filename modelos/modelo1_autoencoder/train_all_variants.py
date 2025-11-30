@@ -116,8 +116,8 @@ pero diferentes arquitecturas de modelo.
     parser.add_argument(
         '--batch_size',
         type=int,
-        default=32,
-        help='Tamaño del batch (default: 32)'
+        default=64,
+        help='Tamaño del batch (default: 64, aumentar para mejor uso de GPU)'
     )
     parser.add_argument(
         '--epochs',
@@ -204,8 +204,8 @@ pero diferentes arquitecturas de modelo.
         args_base['img_size'] = args.img_size
         # No agregar use_segmentation para que sea False por defecto
     
-    if args.early_stopping:
-        args_base['early_stopping'] = True
+    #if args.early_stopping:
+    args_base['early_stopping'] = True
     
     print("="*70)
     print("ENTRENAMIENTO DE 3 VARIANTES DEL MODELO 1")

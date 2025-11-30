@@ -154,8 +154,21 @@ def train_epoch(model, train_loader, criterion, optimizer, device, epoch_num, to
     
     print(f"  Entrenando... (0/{total_batches} batches)", end='', flush=True)
     
+    # Usar torch.cuda.Stream para solapar transferencias y computación
+    if device == "cuda":
+        stream = torch.cuda.Stream()
+    
     for batch_idx, batch in enumerate(train_loader, 1):
-        images = batch.to(device)
+        # Transferir a GPU de forma asíncrona si es posible
+        if device == "cuda":
+            with torch.cuda.stream(stream):
+                images = batch.to(device, non_blocking=True)
+        else:
+            images = batch.to(device)
+        
+        # Sincronizar stream antes de usar los datos
+        if device == "cuda":
+            torch.cuda.current_stream().wait_stream(stream)
         
         optimizer.zero_grad()
         reconstructed = model(images)
@@ -185,9 +198,20 @@ def validate(model, val_loader, criterion, device):
     
     print(f"  Validando... (0/{total_batches} batches)", end='', flush=True)
     
+    # Usar torch.cuda.Stream para solapar transferencias y computación
+    if device == "cuda":
+        stream = torch.cuda.Stream()
+    
     with torch.no_grad():
         for batch_idx, batch in enumerate(val_loader, 1):
-            images = batch.to(device)
+            # Transferir a GPU de forma asíncrona si es posible
+            if device == "cuda":
+                with torch.cuda.stream(stream):
+                    images = batch.to(device, non_blocking=True)
+                torch.cuda.current_stream().wait_stream(stream)
+            else:
+                images = batch.to(device)
+            
             reconstructed = model(images)
             loss = criterion(reconstructed, images)
             total_loss += loss.item()
@@ -239,8 +263,8 @@ def main():
     parser.add_argument(
         '--batch_size',
         type=int,
-        default=32,
-        help='Tamaño del batch (default: 32)'
+        default=64,
+        help='Tamaño del batch (default: 64, aumentar para mejor uso de GPU)'
     )
     parser.add_argument(
         '--epochs',
@@ -352,22 +376,32 @@ def main():
     print(f"Train: {len(train_dataset)} muestras")
     print(f"Val: {len(val_dataset)} muestras")
     
-    # Crear DataLoaders
+    # Crear DataLoaders con optimizaciones para GPU
+    # Aumentar num_workers para paralelizar carga de datos
+    num_workers = min(8, os.cpu_count() or 1)  # Usar hasta 8 workers o el número de CPUs disponibles
+    prefetch_factor = 2  # Pre-cargar 2 batches por worker
+    
     train_loader = DataLoader(
         train_dataset,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=4,
-        pin_memory=True if device == "cuda" else False
+        num_workers=num_workers,
+        pin_memory=True if device == "cuda" else False,
+        prefetch_factor=prefetch_factor if num_workers > 0 else None,
+        persistent_workers=True if num_workers > 0 else False  # Mantener workers vivos entre épocas
     )
     
     val_loader = DataLoader(
         val_dataset,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=4,
-        pin_memory=True if device == "cuda" else False
+        num_workers=num_workers,
+        pin_memory=True if device == "cuda" else False,
+        prefetch_factor=prefetch_factor if num_workers > 0 else None,
+        persistent_workers=True if num_workers > 0 else False
     )
+    
+    print(f"DataLoader configurado: {num_workers} workers, prefetch_factor={prefetch_factor}, pin_memory={device == 'cuda'}")
     
     # Crear modelo
     if args.use_transfer_learning:
