@@ -30,7 +30,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "preprocesamiento"))
 import config
 from modelos.modelo1_autoencoder.model_autoencoder import ConvAutoencoder
 from modelos.modelo1_autoencoder.model_autoencoder_transfer import AutoencoderTransferLearning
-from preprocesamiento.preprocesamiento import preprocesar_imagen_3canales
+from preprocesamiento import preprocesar_imagen_3canales
 
 # Rutas
 ETIQUETADAS_DIR = PROJECT_ROOT / "etiquetadas"
