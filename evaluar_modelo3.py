@@ -411,13 +411,51 @@ def evaluar_modelo(
 def obtener_variantes_modelo(modelos_dir: Path) -> List[Dict]:
     """
     Obtiene las variantes disponibles del modelo 3 según los modelos entrenados.
+    Detecta automáticamente el modelo ViT y k según el nombre del archivo.
     """
     variantes = []
     
-    # Buscar cualquier .pkl (modelo 3 generalmente tiene un solo modelo)
+    # Buscar modelos .pkl
     modelos_pkl = list(modelos_dir.glob("*.pkl"))
-    if modelos_pkl:
-        # Por defecto usar ViT base
+    
+    if len(modelos_pkl) == 0:
+        return variantes
+    
+    # Intentar detectar modelo ViT y k desde el nombre del archivo
+    for modelo_path in modelos_pkl:
+        nombre_archivo = modelo_path.stem.lower()
+        
+        # Detectar modelo ViT
+        if 'vit-large' in nombre_archivo or 'large' in nombre_archivo:
+            model_name = 'google/vit-large-patch16-224'
+            nombre_corto = 'ViT_Large'
+        elif 'vit-base' in nombre_archivo or 'base' in nombre_archivo:
+            model_name = 'google/vit-base-patch16-224'
+            nombre_corto = 'ViT_Base'
+        else:
+            # Por defecto ViT base
+            model_name = 'google/vit-base-patch16-224'
+            nombre_corto = 'ViT_Base'
+        
+        # Detectar k
+        if '_k10' in nombre_archivo or 'k10' in nombre_archivo:
+            k_str = 'k10'
+        elif '_k5' in nombre_archivo or 'k5' in nombre_archivo:
+            k_str = 'k5'
+        else:
+            k_str = 'k5'  # Por defecto
+        
+        nombre_variante = f'Modelo_{nombre_corto}_{k_str}'
+        
+        variantes.append({
+            'nombre': nombre_variante,
+            'archivo': modelo_path.name,
+            'modelo_path': str(modelo_path),
+            'model_name': model_name
+        })
+    
+    # Si no se detectaron variantes, usar el primer modelo encontrado
+    if len(variantes) == 0 and len(modelos_pkl) > 0:
         variantes.append({
             'nombre': 'Modelo_ViT',
             'archivo': modelos_pkl[0].name,
