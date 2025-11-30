@@ -110,8 +110,9 @@ class GoodBoardsDataset(Dataset):
             
             print(f"\n  Total de parches generados: {len(self.patches_info)}")
         else:
-            for img_path in self.image_paths:
-                self.patches_info.append((len(self.image_paths), 0))
+            # Sin segmentación: cada imagen es una muestra
+            for img_idx, img_path in enumerate(self.image_paths):
+                self.patches_info.append((img_idx, 0))
                 self.image_shapes.append((img_size, img_size))
     
     def __len__(self):
