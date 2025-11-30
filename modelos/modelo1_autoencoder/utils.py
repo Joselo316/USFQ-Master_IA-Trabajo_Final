@@ -8,7 +8,6 @@ from pathlib import Path
 # Agregar rutas al path para importaciones
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
-sys.path.insert(0, str(PROJECT_ROOT / "preprocesamiento"))
 
 import cv2
 import numpy as np
