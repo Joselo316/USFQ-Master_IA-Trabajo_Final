@@ -12,7 +12,7 @@ from pathlib import Path
 # IMPORTANTE: Configurar la ruta absoluta al directorio donde están las imágenes del dataset.
 # El dataset debe permanecer fuera del repositorio.
 # Ejemplo: DATASET_PATH = r"D:\Dataset\imagenes"
-DATASET_PATH = r"E:\Dataset\clases"  # CAMBIAR ESTA RUTA SEGÚN TU CONFIGURACIÓN
+DATASET_PATH = r"E:\Dataset\preprocesadas"  # CAMBIAR ESTA RUTA SEGÚN TU CONFIGURACIÓN
 
 # Verificar que la ruta existe
 if not os.path.exists(DATASET_PATH):

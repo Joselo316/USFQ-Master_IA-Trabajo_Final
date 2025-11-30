@@ -84,11 +84,32 @@ pero diferentes arquitecturas de modelo.
     )
     
     # Argumentos comunes
+    # Por defecto usar imágenes preprocesadas
+    dataset_path_preprocesado = Path("E:/Dataset/preprocesadas")
+    if dataset_path_preprocesado.exists():
+        default_data_dir = str(dataset_path_preprocesado)
+        default_data_dir_desc = "E:/Dataset/preprocesadas (imágenes ya preprocesadas)"
+    else:
+        default_data_dir = str(config.DATASET_PATH)
+        default_data_dir_desc = f"{config.DATASET_PATH} (imágenes originales)"
+    
     parser.add_argument(
         '--data_dir',
         type=str,
         default=None,
-        help=f'Directorio raíz de los datos (default: {config.DATASET_PATH})'
+        help=f'Directorio raíz de los datos (default: {default_data_dir_desc})'
+    )
+    parser.add_argument(
+        '--usar_preprocesadas',
+        action='store_true',
+        default=True,
+        help='Usar imágenes preprocesadas (default: True, busca en E:/Dataset/preprocesadas)'
+    )
+    parser.add_argument(
+        '--usar_originales',
+        dest='usar_preprocesadas',
+        action='store_false',
+        help='Usar imágenes originales (aplicará preprocesamiento durante entrenamiento)'
     )
     parser.add_argument(
         '--use_segmentation',
@@ -178,9 +199,26 @@ pero diferentes arquitecturas de modelo.
     
     args = parser.parse_args()
     
-    # Obtener data_dir desde config si no se especifica
+    # Obtener data_dir: usar preprocesadas por defecto si existen, sino usar originales
     if args.data_dir is None:
-        args.data_dir = config.DATASET_PATH
+        if args.usar_preprocesadas:
+            dataset_path_preprocesado = Path("E:/Dataset/preprocesadas")
+            if dataset_path_preprocesado.exists():
+                args.data_dir = str(dataset_path_preprocesado)
+                print(f"INFO: Usando imágenes preprocesadas desde: {args.data_dir}")
+            else:
+                print(f"ADVERTENCIA: No se encontró E:/Dataset/preprocesadas, usando imágenes originales")
+                args.data_dir = str(config.DATASET_PATH)
+                args.usar_preprocesadas = False
+        else:
+            args.data_dir = str(config.DATASET_PATH)
+            print(f"INFO: Usando imágenes originales desde: {args.data_dir}")
+    else:
+        # Si se especifica data_dir manualmente, verificar si son preprocesadas
+        if "preprocesadas" in args.data_dir.lower():
+            args.usar_preprocesadas = True
+        else:
+            args.usar_preprocesadas = False
     
     # Preparar argumentos base comunes
     args_base = {
@@ -211,6 +249,7 @@ pero diferentes arquitecturas de modelo.
     print("ENTRENAMIENTO DE 3 VARIANTES DEL MODELO 1")
     print("="*70)
     print(f"Directorio de datos: {args.data_dir}")
+    print(f"Imágenes: {'Preprocesadas (sin preprocesamiento adicional)' if args.usar_preprocesadas else 'Originales (aplicará preprocesamiento)'}")
     print(f"Configuración común:")
     print(f"  Batch size: {args.batch_size}")
     print(f"  Épocas: {args.epochs}")
@@ -221,7 +260,10 @@ pero diferentes arquitecturas de modelo.
         print(f"  Overlap ratio: {args.overlap_ratio}")
     else:
         print(f"  Tamaño de imagen: {args.img_size}x{args.img_size}")
-        print(f"  Modo: Redimensionar imagen completa y aplicar preprocesamiento de 3 canales")
+        if args.usar_preprocesadas:
+            print(f"  Modo: Cargar imágenes preprocesadas (ya están a 256x256 y 3 canales)")
+        else:
+            print(f"  Modo: Redimensionar imagen completa y aplicar preprocesamiento de 3 canales")
     if args.early_stopping:
         print(f"  Early stopping: Sí (patience={args.patience}, min_delta={args.min_delta})")
     print("="*70)
