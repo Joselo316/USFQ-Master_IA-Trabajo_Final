@@ -126,12 +126,41 @@ python train_all_models.py --all --data_dir "ruta/al/dataset"
 
 #### Modelo 1: Autoencoder
 
+**Opción A: Entrenar una variante individual**
+
 ```bash
 cd modelos/modelo1_autoencoder
 python train.py --data_dir "ruta/al/dataset" [opciones]
 ```
 
-Opciones principales:
+**Opción B: Entrenar las 3 variantes para comparación (RECOMENDADO)**
+
+```bash
+cd modelos/modelo1_autoencoder
+python train_all_variants.py --data_dir "ruta/al/dataset" --use_segmentation [opciones]
+```
+
+Este script entrena automáticamente 3 modelos con nombres diferentes:
+1. `autoencoder_normal.pt` - Modelo original (entrenado desde cero)
+2. `autoencoder_resnet18.pt` - Con transfer learning ResNet18
+3. `autoencoder_resnet50.pt` - Con transfer learning ResNet50
+
+Opciones principales de `train_all_variants.py`:
+- `--data_dir`: Directorio raíz con carpetas 0-9 (default: desde config.py)
+- `--use_segmentation`: Usar segmentación en parches
+- `--patch_size`: Tamaño de parche cuando se usa segmentación (default: 256)
+- `--overlap_ratio`: Solapamiento entre parches (default: 0.3)
+- `--batch_size`: Tamaño de batch (default: 32)
+- `--epochs`: Número de épocas (default: 50)
+- `--lr`: Learning rate (default: 1e-3)
+- `--early_stopping`: Activar early stopping para todas las variantes
+- `--patience`: Paciencia para early stopping (default: 10)
+- `--min_delta`: Mejora mínima relativa (default: 0.0001)
+- `--skip_original`: Saltar entrenamiento del modelo original
+- `--skip_resnet18`: Saltar entrenamiento del modelo ResNet18
+- `--skip_resnet50`: Saltar entrenamiento del modelo ResNet50
+
+Opciones principales de `train.py` (entrenamiento individual):
 - `--data_dir`: Directorio raíz con carpetas 0-9 (default: desde config.py)
 - `--use_segmentation`: Usar segmentación en parches
 - `--patch_size`: Tamaño de parche cuando se usa segmentación (default: 256)
@@ -143,18 +172,21 @@ Opciones principales:
 - `--use_transfer_learning`: Usar transfer learning (encoder ResNet preentrenado)
 - `--encoder_name`: Encoder para transfer learning (resnet18, resnet34, resnet50)
 - `--freeze_encoder`: Congelar encoder en transfer learning (default: True)
+- `--early_stopping`: Activar early stopping
+- `--patience`: Paciencia para early stopping (default: 10)
+- `--min_delta`: Mejora mínima relativa (default: 0.0001)
 - `--output_dir`: Directorio para guardar modelo (default: models/)
 
 Ejemplos:
 ```bash
-# Modelo original con segmentación
+# Entrenar las 3 variantes para comparación
+python train_all_variants.py --data_dir "../../dataset/clases" --use_segmentation --patch_size 256 --overlap_ratio 0.3 --epochs 50 --early_stopping
+
+# Entrenar solo modelo original individual
 python train.py --data_dir "../../dataset/clases" --use_segmentation --patch_size 256 --overlap_ratio 0.3 --epochs 50
 
-# Modelo con transfer learning (ResNet18)
+# Entrenar solo modelo con transfer learning ResNet18
 python train.py --data_dir "../../dataset/clases" --use_segmentation --use_transfer_learning --encoder_name resnet18 --freeze_encoder
-
-# Modelo sin segmentación (imagen completa)
-python train.py --data_dir "../../dataset/clases" --img_size 256 --epochs 50
 ```
 
 #### Modelo 2: Features
