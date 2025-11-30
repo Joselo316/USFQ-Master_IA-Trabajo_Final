@@ -136,11 +136,12 @@ class GoodBoardsDataset(Dataset):
             return patch_tensor
         else:
             # Cargar imagen completa, redimensionar y aplicar preprocesamiento de 3 canales
-            # cargar_y_preprocesar_3canales ya aplica el preprocesamiento y redimensiona si es necesario
+            # cargar_y_preprocesar_3canales devuelve imagen en [0, 255] (uint8)
             img_3canales = cargar_y_preprocesar_3canales(str(img_path), tamaño_objetivo=(self.img_size, self.img_size))
-            # La imagen ya viene normalizada a [0, 1] y con 3 canales
+            # Normalizar a [0, 1] y convertir a float
+            img_normalized = img_3canales.astype(np.float32) / 255.0
             # Convertir a tensor: (H, W, 3) -> (3, H, W)
-            img_tensor = torch.from_numpy(img_3canales).permute(2, 0, 1).float()
+            img_tensor = torch.from_numpy(img_normalized).permute(2, 0, 1).float()
             return img_tensor
 
 
