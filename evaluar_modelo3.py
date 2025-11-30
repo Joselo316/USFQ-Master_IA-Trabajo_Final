@@ -34,6 +34,7 @@ from modelos.modelo3_transformer.utils import (
     procesar_imagen_inferencia,
     generar_mapa_anomalia
 )
+from modelos.modelo3_transformer.classifiers import AnomalyClassifier, KNNClassifier
 
 # Rutas
 ETIQUETADAS_DIR = PROJECT_ROOT / "etiquetadas"
@@ -103,12 +104,19 @@ def inferir_imagen(
         # Extraer features con ViT
         features = extractor.extraer_features(parches_array, mostrar_progreso=False)
         
-        # Obtener k-NN del modelo
-        knn_model = modelo_data['knn_model']
+        # Obtener clasificador del modelo
+        # Compatibilidad: puede tener 'classifier' (nuevo) o 'knn_model' (antiguo)
+        if 'classifier' in modelo_data:
+            classifier = modelo_data['classifier']
+        else:
+            # Código antiguo: crear wrapper para knn_model
+            knn_model = modelo_data['knn_model']
+            classifier = KNNClassifier(n_neighbors=knn_model.n_neighbors)
+            classifier.model = knn_model
         
-        # Calcular distancias usando k-NN
-        distancias, indices = knn_model.kneighbors(features)
-        distancias_promedio = np.mean(distancias, axis=1)
+        # Calcular scores usando el clasificador
+        scores = classifier.predict_scores(features)
+        distancias_promedio = scores  # Para compatibilidad con código existente
         
         # Generar mapa de anomalía
         mapa_anomalia, mapa_binario, umbral_final = generar_mapa_anomalia(
@@ -141,7 +149,7 @@ def inferir_imagen(
 
 def cargar_modelo_y_extractor(modelo_path: Path, model_name: str, batch_size: int = 32) -> Tuple[Dict, ViTFeatureExtractor]:
     """
-    Carga el modelo (datos del k-NN) y el extractor de features ViT.
+    Carga el modelo (datos del clasificador) y el extractor de features ViT.
     """
     # Cargar modelo
     with open(modelo_path, 'rb') as f:
@@ -153,6 +161,16 @@ def cargar_modelo_y_extractor(modelo_path: Path, model_name: str, batch_size: in
         device=None,  # Auto-detecta
         batch_size=batch_size
     )
+    
+    # Detectar tipo de clasificador para mostrar información
+    if 'classifier' in modelo_data:
+        classifier_type = modelo_data.get('estadisticas', {}).get('classifier_type', 'unknown')
+    elif 'knn_model' in modelo_data:
+        classifier_type = 'knn'
+    else:
+        classifier_type = 'unknown'
+    
+    modelo_data['_classifier_type'] = classifier_type
     
     return modelo_data, extractor
 
@@ -310,7 +328,13 @@ def evaluar_modelo(
     modelo_data, extractor = cargar_modelo_y_extractor(modelo_path, model_name, batch_size)
     print("Modelo y extractor cargados correctamente.")
     print(f"  Features normales: {modelo_data['features_normales'].shape}")
-    print(f"  k-NN: {modelo_data['knn_model'].n_neighbors} vecinos")
+    classifier_type = modelo_data.get('_classifier_type', 'unknown')
+    print(f"  Clasificador: {classifier_type}")
+    if classifier_type == 'knn' and 'knn_model' in modelo_data:
+        print(f"  k-NN: {modelo_data['knn_model'].n_neighbors} vecinos")
+    elif 'classifier' in modelo_data and hasattr(modelo_data['classifier'], 'model'):
+        if hasattr(modelo_data['classifier'].model, 'n_neighbors'):
+            print(f"  k-NN: {modelo_data['classifier'].model.n_neighbors} vecinos")
     
     # Realizar inferencias
     print("\nRealizando inferencias...")
@@ -411,7 +435,7 @@ def evaluar_modelo(
 def obtener_variantes_modelo(modelos_dir: Path) -> List[Dict]:
     """
     Obtiene las variantes disponibles del modelo 3 según los modelos entrenados.
-    Detecta automáticamente el modelo ViT y k según el nombre del archivo.
+    Detecta automáticamente el modelo ViT y clasificador según el nombre del archivo.
     """
     variantes = []
     
@@ -421,7 +445,7 @@ def obtener_variantes_modelo(modelos_dir: Path) -> List[Dict]:
     if len(modelos_pkl) == 0:
         return variantes
     
-    # Intentar detectar modelo ViT y k desde el nombre del archivo
+    # Intentar detectar modelo ViT y clasificador desde el nombre del archivo
     for modelo_path in modelos_pkl:
         nombre_archivo = modelo_path.stem.lower()
         
@@ -437,15 +461,26 @@ def obtener_variantes_modelo(modelos_dir: Path) -> List[Dict]:
             model_name = 'google/vit-base-patch16-224'
             nombre_corto = 'ViT_Base'
         
-        # Detectar k
-        if '_k10' in nombre_archivo or 'k10' in nombre_archivo:
-            k_str = 'k10'
-        elif '_k5' in nombre_archivo or 'k5' in nombre_archivo:
-            k_str = 'k5'
+        # Detectar clasificador
+        if 'knn' in nombre_archivo:
+            if '_k10' in nombre_archivo or 'k10' in nombre_archivo:
+                classifier_str = 'kNN_k10'
+            elif '_k5' in nombre_archivo or 'k5' in nombre_archivo:
+                classifier_str = 'kNN_k5'
+            else:
+                classifier_str = 'kNN'
+        elif 'iforest' in nombre_archivo or 'isolation' in nombre_archivo:
+            classifier_str = 'IsolationForest'
+        elif 'ocsvm' in nombre_archivo or 'oneclass' in nombre_archivo:
+            classifier_str = 'OneClassSVM'
+        elif 'lof' in nombre_archivo:
+            classifier_str = 'LOF'
+        elif 'elliptic' in nombre_archivo:
+            classifier_str = 'EllipticEnvelope'
         else:
-            k_str = 'k5'  # Por defecto
+            classifier_str = 'kNN'  # Por defecto
         
-        nombre_variante = f'Modelo_{nombre_corto}_{k_str}'
+        nombre_variante = f'Modelo_{nombre_corto}_{classifier_str}'
         
         variantes.append({
             'nombre': nombre_variante,
