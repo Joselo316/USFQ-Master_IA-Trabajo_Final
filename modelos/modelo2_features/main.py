@@ -1,0 +1,301 @@
+"""
+Script principal para inferencia con el modelo 2: Features (PaDiM/PatchCore)
+"""
+
+import argparse
+import os
+import sys
+import time
+import json
+from pathlib import Path
+
+# Agregar rutas al path
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "preprocesamiento"))
+
+import cv2
+import numpy as np
+import pickle
+
+# Importar configuración y utilidades
+import config
+from modelos.modelo2_features.utils import (
+    procesar_imagen_inferencia,
+    reconstruir_mapa_anomalia,
+    normalizar_mapa,
+    crear_overlay
+)
+from modelos.modelo2_features.feature_extractor import FeatureExtractor
+from modelos.modelo2_features.fit_distribution import DistribucionFeatures
+
+
+def combinar_scores_capas(
+    scores_por_capa: dict,
+    metodo: str = 'suma'
+) -> np.ndarray:
+    """
+    Combina scores de múltiples capas en un score único.
+    
+    Args:
+        scores_por_capa: Diccionario {nombre_capa: scores (N,)}
+        metodo: 'suma', 'max', 'promedio'
+    
+    Returns:
+        Scores combinados (N,)
+    """
+    scores_list = list(scores_por_capa.values())
+    
+    if metodo == 'suma':
+        scores_combinados = np.sum(scores_list, axis=0)
+    elif metodo == 'max':
+        scores_combinados = np.max(scores_list, axis=0)
+    elif metodo == 'promedio':
+        scores_combinados = np.mean(scores_list, axis=0)
+    else:
+        raise ValueError(f"Metodo no soportado: {metodo}")
+    
+    return scores_combinados
+
+
+def main():
+    """Función principal de inferencia."""
+    parser = argparse.ArgumentParser(
+        description='Detección de anomalías usando features (PaDiM/PatchCore)'
+    )
+    parser.add_argument(
+        '--image',
+        type=str,
+        required=True,
+        help='Ruta a la imagen de test'
+    )
+    parser.add_argument(
+        '--model',
+        type=str,
+        required=True,
+        help='Ruta al modelo entrenado (distribucion_features.pkl)'
+    )
+    parser.add_argument(
+        '--output',
+        type=str,
+        default=None,
+        help='Directorio donde guardar resultados (default: outputs/)'
+    )
+    parser.add_argument(
+        '--patch_size',
+        type=int,
+        nargs=2,
+        default=None,
+        metavar=('H', 'W'),
+        help=f'Tamaño de los patches (default: {config.PATCH_SIZE} {config.PATCH_SIZE})'
+    )
+    parser.add_argument(
+        '--overlap_percent',
+        type=float,
+        default=None,
+        help=f'Porcentaje de solapamiento entre patches 0.0-1.0 (default: {config.OVERLAP_RATIO})'
+    )
+    parser.add_argument(
+        '--backbone',
+        type=str,
+        default='wide_resnet50_2',
+        choices=['resnet18', 'resnet50', 'wide_resnet50_2'],
+        help='Modelo base (debe ser igual al usado en entrenamiento)'
+    )
+    parser.add_argument(
+        '--batch_size',
+        type=int,
+        default=None,
+        help=f'Tamaño de batch para extracción de features (default: {config.BATCH_SIZE})'
+    )
+    parser.add_argument(
+        '--combine_method',
+        type=str,
+        default='suma',
+        choices=['suma', 'max', 'promedio'],
+        help='Método para combinar scores de múltiples capas'
+    )
+    parser.add_argument(
+        '--interpolation_method',
+        type=str,
+        default='gaussian',
+        choices=['gaussian', 'max_pooling'],
+        help='Método de interpolación para reconstruir mapa'
+    )
+    parser.add_argument(
+        '--aplicar_preprocesamiento',
+        action='store_true',
+        default=True,
+        help='Aplicar preprocesamiento de 3 canales (default: True)'
+    )
+
+    args = parser.parse_args()
+    
+    # Usar valores de config si no se especifican
+    patch_size = tuple(args.patch_size) if args.patch_size else (config.PATCH_SIZE, config.PATCH_SIZE)
+    overlap_percent = args.overlap_percent if args.overlap_percent is not None else config.OVERLAP_RATIO
+    batch_size = args.batch_size if args.batch_size is not None else config.BATCH_SIZE
+    output_dir = args.output if args.output else str(config.OUTPUT_DIR_MODEL2)
+    
+    # Iniciar contador de tiempo
+    tiempo_inicio = time.time()
+    
+    # Verificar que existe la imagen
+    if not os.path.exists(args.image):
+        raise FileNotFoundError(f"Imagen no encontrada: {args.image}")
+    
+    # Verificar que existe el modelo
+    if not os.path.exists(args.model):
+        raise FileNotFoundError(
+            f"Modelo no encontrado: {args.model}\n"
+            f"Por favor, entrena el modelo primero."
+        )
+    
+    # Crear directorio de salida
+    os.makedirs(output_dir, exist_ok=True)
+    
+    print("="*70)
+    print("INFERENCIA CON MODELO 2: FEATURES (PaDiM/PatchCore)")
+    print("="*70)
+    print(f"Imagen: {args.image}")
+    print(f"Modelo: {args.model}")
+    print(f"Backbone: {args.backbone}")
+    print(f"Tamaño de patch: {patch_size}")
+    print(f"Solapamiento: {overlap_percent*100:.1f}%")
+    print(f"Preprocesamiento: {'Sí' if args.aplicar_preprocesamiento else 'No'}")
+    print("="*70)
+    
+    # Cargar modelo
+    print(f"\nCargando modelo desde {args.model}...")
+    with open(args.model, 'rb') as f:
+        distribucion = pickle.load(f)
+    print("Modelo cargado correctamente.")
+    
+    # Inicializar extractor de features
+    print(f"Inicializando extractor de features ({args.backbone})...")
+    extractor = FeatureExtractor(modelo_base=args.backbone)
+    print("Extractor inicializado.")
+    
+    # Procesar imagen y generar patches
+    print(f"\nProcesando imagen: {args.image}...")
+    patches, posiciones, tamaño_orig = procesar_imagen_inferencia(
+        args.image,
+        tamaño_patch=patch_size,
+        overlap_percent=overlap_percent,
+        aplicar_preprocesamiento=args.aplicar_preprocesamiento
+    )
+    
+    num_parches = len(patches)
+    print(f"  Imagen original: {tamaño_orig}")
+    print(f"  Patches generados: {num_parches}")
+    
+    # Extraer features
+    print("  Extrayendo features...")
+    features_por_capa = extractor.extraer_features_patches(
+        patches, batch_size=batch_size
+    )
+    
+    # Calcular scores
+    print("  Calculando scores de anomalía...")
+    scores_por_capa = distribucion.calcular_scores_mahalanobis(features_por_capa)
+    
+    # Combinar scores de múltiples capas
+    scores_combinados = combinar_scores_capas(scores_por_capa, args.combine_method)
+    
+    # Estadísticas de scores
+    print(f"  Scores - min: {scores_combinados.min():.4f}, "
+          f"max: {scores_combinados.max():.4f}, "
+          f"mean: {scores_combinados.mean():.4f}, "
+          f"std: {scores_combinados.std():.4f}")
+    
+    # Reconstruir mapa de anomalía
+    print("  Reconstruyendo mapa de anomalía...")
+    mapa_anomalia = reconstruir_mapa_anomalia(
+        scores_combinados, posiciones, tamaño_orig, patch_size, args.interpolation_method
+    )
+    
+    # Normalizar mapa
+    mapa_normalizado = normalizar_mapa(mapa_anomalia, metodo='percentile')
+    
+    # Estadísticas del mapa
+    print(f"  Mapa - min: {mapa_anomalia.min():.4f}, "
+          f"max: {mapa_anomalia.max():.4f}, "
+          f"mean: {mapa_anomalia.mean():.4f}, "
+          f"std: {mapa_anomalia.std():.4f}")
+    
+    # Calcular tiempo total
+    tiempo_total = time.time() - tiempo_inicio
+    
+    # Guardar resultados
+    print(f"\nGuardando resultados en {output_dir}...")
+    
+    nombre_base = Path(args.image).stem
+    
+    # Cargar imagen original para overlay
+    img_orig = cv2.imread(args.image, cv2.IMREAD_GRAYSCALE)
+    if img_orig is None:
+        raise ValueError(f"No se pudo cargar la imagen: {args.image}")
+    img_orig_norm = img_orig.astype(np.float32) / 255.0
+    
+    # Asegurar que el mapa tiene el mismo tamaño que la imagen original
+    if mapa_normalizado.shape != img_orig.shape:
+        mapa_normalizado = cv2.resize(
+            mapa_normalizado,
+            (img_orig.shape[1], img_orig.shape[0]),
+            interpolation=cv2.INTER_LINEAR
+        )
+    
+    # 1. Guardar mapa de anomalía
+    mapa_uint8 = (mapa_normalizado * 255).astype(np.uint8)
+    ruta_mapa = os.path.join(output_dir, f"{nombre_base}_mapa.png")
+    cv2.imwrite(ruta_mapa, mapa_uint8)
+    print(f"  Mapa guardado: {ruta_mapa}")
+    
+    # 2. Crear y guardar overlay
+    overlay = crear_overlay(
+        img_orig_norm,
+        mapa_normalizado,
+        alpha=0.5,
+        tiempo_inferencia=tiempo_total,
+        num_parches=num_parches
+    )
+    ruta_overlay = os.path.join(output_dir, f"{nombre_base}_overlay.png")
+    cv2.imwrite(ruta_overlay, overlay)
+    print(f"  Overlay guardado: {ruta_overlay}")
+    
+    # 3. Guardar estadísticas
+    estadisticas = {
+        'min': float(mapa_anomalia.min()),
+        'max': float(mapa_anomalia.max()),
+        'mean': float(mapa_anomalia.mean()),
+        'std': float(mapa_anomalia.std()),
+        'percentiles': {
+            'p50': float(np.percentile(mapa_anomalia, 50)),
+            'p75': float(np.percentile(mapa_anomalia, 75)),
+            'p90': float(np.percentile(mapa_anomalia, 90)),
+            'p95': float(np.percentile(mapa_anomalia, 95)),
+            'p99': float(np.percentile(mapa_anomalia, 99))
+        },
+        'tiempo_inferencia': tiempo_total,
+        'num_parches': num_parches
+    }
+    
+    ruta_stats = os.path.join(output_dir, f"{nombre_base}_stats.json")
+    with open(ruta_stats, 'w') as f:
+        json.dump(estadisticas, f, indent=2)
+    print(f"  Estadísticas guardadas: {ruta_stats}")
+    
+    print("\n" + "="*70)
+    print("RESUMEN DEL PROCESO:")
+    print("="*70)
+    print(f"Número de parches generados: {num_parches}")
+    print(f"Tamaño de parche: {patch_size[0]}x{patch_size[1]}")
+    print(f"Solapamiento: {overlap_percent*100:.1f}%")
+    print(f"Tiempo total del proceso: {tiempo_total:.2f} segundos")
+    print("="*70)
+    print("\nInferencia completada!")
+
+
+if __name__ == "__main__":
+    main()
+

@@ -1,0 +1,101 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Modelos entrenados (no subir modelos grandes)
+*.pt
+*.pth
+*.pkl
+*.h5
+*.ckpt
+*.pb
+models/*.pt
+models/*.pth
+models/*.pkl
+models/*.h5
+
+# Datos y datasets (el dataset está fuera del repositorio)
+data/
+datasets/
+*.png
+*.jpg
+*.jpeg
+*.tif
+*.tiff
+*.npy
+*.npz
+
+# Resultados y outputs
+outputs/
+*.log
+runs/
+training_history/
+*.csv
+*.json
+!**/outputs/.gitkeep
+
+# TensorBoard
+runs/
+*.tfevents.*
+
+# Configuración local (puede contener rutas personales)
+config_local.py
+
+# Archivos temporales
+*.tmp
+*.temp
+*.bak
+*.cache
+
+# Sistema operativo
+Thumbs.db
+.DS_Store
+
+# Archivos de checkpoint de PyTorch
+checkpoints/
+*.pth.tar
+
+# Archivos de logs
+logs/
+*.log
+
+# Archivos de test
+test_outputs/
+test_results/
+
