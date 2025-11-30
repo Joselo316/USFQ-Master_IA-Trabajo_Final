@@ -33,7 +33,7 @@ def procesar_imagen(
     img_path: Path,
     output_dir: Path,
     clase: int,
-    redimensionar: bool = False,
+    redimensionar: bool = True,
     tamaño_objetivo: Tuple[int, int] = None
 ) -> Tuple[bool, str]:
     """
@@ -81,7 +81,7 @@ def procesar_clase(
     clase_dir: Path,
     output_dir: Path,
     clase: int,
-    redimensionar: bool = False,
+    redimensionar: bool = True,
     tamaño_objetivo: Tuple[int, int] = None,
     extensiones: List[str] = None
 ) -> Tuple[int, int, List[str]]:
@@ -162,7 +162,14 @@ Ejemplo de uso:
     parser.add_argument(
         '--redimensionar',
         action='store_true',
-        help='Redimensionar imágenes antes del preprocesamiento'
+        default=True,
+        help='Redimensionar imágenes antes del preprocesamiento (default: True, 256x256)'
+    )
+    parser.add_argument(
+        '--no_redimensionar',
+        dest='redimensionar',
+        action='store_false',
+        help='NO redimensionar imágenes (mantener tamaño original)'
     )
     parser.add_argument(
         '--img_size',
@@ -173,7 +180,7 @@ Ejemplo de uso:
     parser.add_argument(
         '--num_workers',
         type=int,
-        default=0,
+        default=30,
         help='Número de workers para procesamiento paralelo (0 = secuencial, default: 0)'
     )
     parser.add_argument(
@@ -265,12 +272,14 @@ Ejemplo de uso:
             if not (clase_dir.exists() and clase_dir.is_dir()):
                 continue
             
+            # Por defecto redimensionar a 256x256
+            tamaño_objetivo = (args.img_size, args.img_size) if args.redimensionar else None
             total, exitosas, errores = procesar_clase(
                 clase_dir,
                 output_dir,
                 clase,
                 args.redimensionar,
-                (args.img_size, args.img_size) if args.redimensionar else None,
+                tamaño_objetivo,
                 args.extensiones
             )
             
