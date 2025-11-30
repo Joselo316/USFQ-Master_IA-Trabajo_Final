@@ -156,8 +156,8 @@ Ejemplo de uso:
     parser.add_argument(
         '--output_dir',
         type=str,
-        required=True,
-        help='Directorio de salida donde se guardarán las imágenes preprocesadas'
+        default="E:/Dataset/preprocesadas",
+        help='Directorio de salida donde se guardarán las imágenes preprocesadas (default: E:/Dataset/preprocesadas)'
     )
     parser.add_argument(
         '--redimensionar',

@@ -157,10 +157,16 @@ class GoodBoardsDataset(Dataset):
 
 def train_epoch(model, train_loader, criterion, optimizer, device, epoch_num, total_epochs):
     """Entrena el modelo por una época."""
+    import time
+    
     model.train()
     total_loss = 0.0
     num_batches = 0
     total_batches = len(train_loader)
+    batch_size = train_loader.batch_size
+    
+    # Iniciar cronómetro
+    inicio_epoca = time.time()
     
     print(f"  Entrenando... (0/{total_batches} batches)", end='', flush=True)
     
@@ -189,22 +195,38 @@ def train_epoch(model, train_loader, criterion, optimizer, device, epoch_num, to
         total_loss += loss.item()
         num_batches += 1
         
-        # Mostrar progreso cada 10 batches o en el último
+        # Calcular velocidad cada 10 batches
         if batch_idx % 10 == 0 or batch_idx == total_batches:
+            tiempo_transcurrido = time.time() - inicio_epoca
+            imagenes_procesadas = batch_idx * batch_size
+            imagenes_por_segundo = imagenes_procesadas / tiempo_transcurrido if tiempo_transcurrido > 0 else 0
             avg_loss = total_loss / num_batches
-            print(f"\r  Entrenando... ({batch_idx}/{total_batches} batches) | Loss: {loss.item():.6f} | Avg Loss: {avg_loss:.6f}", end='', flush=True)
+            print(f"\r  Entrenando... ({batch_idx}/{total_batches} batches) | Loss: {loss.item():.6f} | Avg Loss: {avg_loss:.6f} | Velocidad: {imagenes_por_segundo:.1f} img/s", end='', flush=True)
     
+    # Calcular métricas finales
+    tiempo_epoca = time.time() - inicio_epoca
+    total_imagenes = num_batches * batch_size
+    imagenes_por_segundo = total_imagenes / tiempo_epoca if tiempo_epoca > 0 else 0
     avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
+    
     print()  # Nueva línea después del progreso
+    print(f"  Tiempo de época: {tiempo_epoca:.2f}s | Imágenes procesadas: {total_imagenes} | Velocidad: {imagenes_por_segundo:.1f} img/s")
+    
     return avg_loss
 
 
 def validate(model, val_loader, criterion, device):
     """Evalúa el modelo en el conjunto de validación."""
+    import time
+    
     model.eval()
     total_loss = 0.0
     num_batches = 0
     total_batches = len(val_loader)
+    batch_size = val_loader.batch_size
+    
+    # Iniciar cronómetro
+    inicio_validacion = time.time()
     
     print(f"  Validando... (0/{total_batches} batches)", end='', flush=True)
     
@@ -227,13 +249,23 @@ def validate(model, val_loader, criterion, device):
             total_loss += loss.item()
             num_batches += 1
             
-            # Mostrar progreso cada 5 batches o en el último
+            # Calcular velocidad cada 5 batches
             if batch_idx % 5 == 0 or batch_idx == total_batches:
+                tiempo_transcurrido = time.time() - inicio_validacion
+                imagenes_procesadas = batch_idx * batch_size
+                imagenes_por_segundo = imagenes_procesadas / tiempo_transcurrido if tiempo_transcurrido > 0 else 0
                 avg_loss = total_loss / num_batches
-                print(f"\r  Validando... ({batch_idx}/{total_batches} batches) | Avg Loss: {avg_loss:.6f}", end='', flush=True)
+                print(f"\r  Validando... ({batch_idx}/{total_batches} batches) | Avg Loss: {avg_loss:.6f} | Velocidad: {imagenes_por_segundo:.1f} img/s", end='', flush=True)
     
+    # Calcular métricas finales
+    tiempo_validacion = time.time() - inicio_validacion
+    total_imagenes = num_batches * batch_size
+    imagenes_por_segundo = total_imagenes / tiempo_validacion if tiempo_validacion > 0 else 0
     avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
+    
     print()  # Nueva línea después del progreso
+    print(f"  Tiempo de validación: {tiempo_validacion:.2f}s | Imágenes procesadas: {total_imagenes} | Velocidad: {imagenes_por_segundo:.1f} img/s")
+    
     return avg_loss
 
 
