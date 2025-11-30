@@ -20,7 +20,13 @@ sys.path.insert(0, str(PROJECT_ROOT / "preprocesamiento"))
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, random_split
-from torch.utils.tensorboard import SummaryWriter
+try:
+    from torch.utils.tensorboard import SummaryWriter
+    TENSORBOARD_AVAILABLE = True
+except ImportError:
+    TENSORBOARD_AVAILABLE = False
+    print("ADVERTENCIA: TensorBoard no está instalado. Las métricas no se guardarán en TensorBoard.")
+    print("Para instalarlo: pip install tensorboard")
 import cv2
 import numpy as np
 from typing import List
@@ -352,10 +358,13 @@ def main():
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     
-    # TensorBoard
+    # TensorBoard (opcional)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_name = f"autoencoder_{timestamp}"
-    writer = SummaryWriter(log_dir=f"runs/{run_name}")
+    if TENSORBOARD_AVAILABLE:
+        writer = SummaryWriter(log_dir=f"runs/{run_name}")
+    else:
+        writer = None
     
     # Entrenamiento
     print(f"\nIniciando entrenamiento por {args.epochs} épocas...")
@@ -402,9 +411,10 @@ def main():
         history['learning_rate'].append(optimizer.param_groups[0]['lr'])
         history['best_val_loss'].append(float(best_val_loss))
         
-        writer.add_scalar('Loss/Train', train_loss, epoch)
-        writer.add_scalar('Loss/Val', val_loss, epoch)
-        writer.add_scalar('Learning_Rate', optimizer.param_groups[0]['lr'], epoch)
+        if writer is not None:
+            writer.add_scalar('Loss/Train', train_loss, epoch)
+            writer.add_scalar('Loss/Val', val_loss, epoch)
+            writer.add_scalar('Learning_Rate', optimizer.param_groups[0]['lr'], epoch)
         
         print(f"  Train Loss: {train_loss:.6f} | Val Loss: {val_loss:.6f}")
         
@@ -451,7 +461,8 @@ def main():
             print(f"Mejor val loss alcanzado: {best_val_loss:.6f} en época {epoch - args.patience}")
             break
     
-    writer.close()
+    if writer is not None:
+        writer.close()
     
     # Guardar historial completo en JSON
     history_path = os.path.join(output_dir, f"training_history_{model_name.replace('.pt', '')}_{timestamp}.json")

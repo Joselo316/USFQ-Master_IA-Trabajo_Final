@@ -1,0 +1,24 @@
+# Requisitos para el proyecto TesisMDP
+
+# Deep Learning
+torch>=1.9.0
+torchvision>=0.10.0
+
+# Procesamiento de imágenes
+opencv-python>=4.5.0
+Pillow>=8.0.0
+numpy>=1.21.0
+
+# Machine Learning
+scikit-learn>=1.0.0
+
+# Transformers (para modelo 3)
+transformers>=4.20.0
+
+# Visualización y logging
+matplotlib>=3.5.0
+tensorboard>=2.8.0
+
+# Utilidades
+tqdm>=4.62.0
+

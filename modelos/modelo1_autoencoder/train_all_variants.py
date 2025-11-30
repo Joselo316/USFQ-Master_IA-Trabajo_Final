@@ -278,7 +278,9 @@ pero diferentes arquitecturas de modelo.
     
     # Guardar resumen en archivo
     output_dir = args.output_dir if args.output_dir else "models"
-    resumen_path = Path(output_dir) / f"resumen_entrenamiento_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+    output_dir_path = Path(output_dir)
+    output_dir_path.mkdir(parents=True, exist_ok=True)  # Crear directorio si no existe
+    resumen_path = output_dir_path / f"resumen_entrenamiento_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
     with open(resumen_path, 'w', encoding='utf-8') as f:
         f.write("RESUMEN DEL ENTRENAMIENTO DE 3 VARIANTES\n")
         f.write("="*70 + "\n")
