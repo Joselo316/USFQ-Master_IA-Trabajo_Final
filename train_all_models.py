@@ -13,8 +13,10 @@ from datetime import datetime
 # Rutas a los scripts de entrenamiento
 PROJECT_ROOT = Path(__file__).parent
 TRAIN_MODEL1 = PROJECT_ROOT / "modelos" / "modelo1_autoencoder" / "train.py"
-TRAIN_MODEL2 = PROJECT_ROOT / "modelos" / "modelo2_features" / "train.py"
-TRAIN_MODEL3 = PROJECT_ROOT / "modelos" / "modelo3_transformer" / "train.py"
+TRAIN_MODEL2 = PROJECT_ROOT / "modelos" / "modelo2_features" / "train_all_variants.py"
+TRAIN_MODEL3 = PROJECT_ROOT / "modelos" / "modelo3_transformer" / "train_all_variants.py"
+TRAIN_MODEL4 = PROJECT_ROOT / "modelos" / "modelo4_fastflow" / "main.py"
+TRAIN_MODEL5 = PROJECT_ROOT / "modelos" / "modelo5_stpm" / "main.py"
 
 
 def entrenar_modelo1(args):
@@ -91,20 +93,20 @@ def entrenar_modelo2(args):
 
 
 def entrenar_modelo3(args):
-    """Entrena el modelo 3: Vision Transformer con k-NN"""
+    """Entrena el modelo 3: Vision Transformer con múltiples clasificadores"""
     print("\n" + "="*70)
-    print("ENTRENANDO MODELO 3: VISION TRANSFORMER CON K-NN")
+    print("ENTRENANDO MODELO 3: VISION TRANSFORMER (TODAS LAS VARIANTES)")
     print("="*70)
     
     if not TRAIN_MODEL3.exists():
         print(f"ERROR: No se encuentra el script de entrenamiento: {TRAIN_MODEL3}")
-        print("Por favor, crea el script train.py en modelos/modelo3_transformer/")
+        print("Por favor, crea el script train_all_variants.py en modelos/modelo3_transformer/")
         return False
     
     cmd = [
         sys.executable,
         str(TRAIN_MODEL3),
-        "--datos", args.data_dir,
+        "--data_dir", args.data_dir,
         "--batch_size", str(args.batch_size)
     ]
     
@@ -115,7 +117,75 @@ def entrenar_modelo3(args):
         cmd.extend(["--overlap", str(args.model3_overlap)])
     
     if args.model3_output_dir:
-        cmd.extend(["--output", args.model3_output_dir])
+        cmd.extend(["--output_dir", args.model3_output_dir])
+    
+    print(f"Comando: {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=PROJECT_ROOT)
+    return result.returncode == 0
+
+
+def entrenar_modelo4(args):
+    """Entrena el modelo 4: FastFlow"""
+    print("\n" + "="*70)
+    print("ENTRENANDO MODELO 4: FASTFLOW")
+    print("="*70)
+    
+    if not TRAIN_MODEL4.exists():
+        print(f"ERROR: No se encuentra el script de entrenamiento: {TRAIN_MODEL4}")
+        print("Por favor, crea el script main.py en modelos/modelo4_fastflow/")
+        return False
+    
+    cmd = [
+        sys.executable,
+        str(TRAIN_MODEL4),
+        "--mode", "train_eval",
+        "--data_dir", args.data_dir,
+        "--backbone", args.model4_backbone,
+        "--img_size", str(args.img_size),
+        "--batch_size", str(args.batch_size),
+        "--epochs", str(args.epochs),
+        "--lr", str(args.model4_lr)
+    ]
+    
+    if args.model4_flow_steps:
+        cmd.extend(["--flow_steps", str(args.model4_flow_steps)])
+    
+    if args.model4_coupling_layers:
+        cmd.extend(["--coupling_layers", str(args.model4_coupling_layers)])
+    
+    if args.model4_output_dir:
+        cmd.extend(["--output_dir", args.model4_output_dir])
+    
+    print(f"Comando: {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=PROJECT_ROOT)
+    return result.returncode == 0
+
+
+def entrenar_modelo5(args):
+    """Entrena el modelo 5: STPM"""
+    print("\n" + "="*70)
+    print("ENTRENANDO MODELO 5: STPM")
+    print("="*70)
+    
+    if not TRAIN_MODEL5.exists():
+        print(f"ERROR: No se encuentra el script de entrenamiento: {TRAIN_MODEL5}")
+        print("Por favor, crea el script main.py en modelos/modelo5_stpm/")
+        return False
+    
+    cmd = [
+        sys.executable,
+        str(TRAIN_MODEL5),
+        "--mode", "train_eval",
+        "--data_dir", args.data_dir,
+        "--backbone", args.model5_backbone,
+        "--img_size", str(args.img_size),
+        "--batch_size", str(args.batch_size),
+        "--epochs", str(args.epochs),
+        "--lr", str(args.model5_lr)
+    ]
+    
+    if args.model5_output_dir:
+        cmd.extend(["--output_dir", args.model5_output_dir])
     
     print(f"Comando: {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=PROJECT_ROOT)
@@ -138,6 +208,12 @@ Ejemplos de uso:
   # Entrenar modelo 3 (Transformer)
   python train_all_models.py --modelo 3
 
+  # Entrenar modelo 4 (FastFlow)
+  python train_all_models.py --modelo 4
+
+  # Entrenar modelo 5 (STPM)
+  python train_all_models.py --modelo 5
+
   # Entrenar todos los modelos
   python train_all_models.py --modelo all
 
@@ -148,6 +224,8 @@ Ejemplos de uso:
   python train_all_models.py --model1
   python train_all_models.py --model2
   python train_all_models.py --model3
+  python train_all_models.py --model4
+  python train_all_models.py --model5
   python train_all_models.py --all
         """
     )
@@ -156,9 +234,9 @@ Ejemplos de uso:
     parser.add_argument(
         '--modelo',
         type=str,
-        choices=['1', '2', '3', 'all', 'todos'],
+        choices=['1', '2', '3', '4', '5', 'all', 'todos'],
         default=None,
-        help='Modelo a entrenar: 1 (Autoencoder), 2 (Features), 3 (Transformer), all/todos (todos los modelos)'
+        help='Modelo a entrenar: 1 (Autoencoder), 2 (Features), 3 (Transformer), 4 (FastFlow), 5 (STPM), all/todos (todos los modelos)'
     )
     
     # Selección de modelos - Opciones antiguas (mantener compatibilidad)
@@ -181,6 +259,16 @@ Ejemplos de uso:
         '--model3',
         action='store_true',
         help='Entrenar modelo 3 (Transformer) (alternativa a --modelo 3)'
+    )
+    parser.add_argument(
+        '--model4',
+        action='store_true',
+        help='Entrenar modelo 4 (FastFlow) (alternativa a --modelo 4)'
+    )
+    parser.add_argument(
+        '--model5',
+        action='store_true',
+        help='Entrenar modelo 5 (STPM) (alternativa a --modelo 5)'
     )
     
     # Parámetros comunes
@@ -293,6 +381,60 @@ Ejemplos de uso:
         help='Directorio de salida para modelo 3 (default: modelos/modelo3_transformer/models/)'
     )
     
+    # Parámetros modelo 4 (FastFlow)
+    parser.add_argument(
+        '--model4_backbone',
+        type=str,
+        default='resnet18',
+        choices=['resnet18', 'resnet50'],
+        help='Backbone para modelo 4 (default: resnet18)'
+    )
+    parser.add_argument(
+        '--model4_lr',
+        type=float,
+        default=1e-4,
+        help='Learning rate para modelo 4 (default: 1e-4)'
+    )
+    parser.add_argument(
+        '--model4_flow_steps',
+        type=int,
+        default=4,
+        help='Número de bloques de flow para modelo 4 (default: 4)'
+    )
+    parser.add_argument(
+        '--model4_coupling_layers',
+        type=int,
+        default=4,
+        help='Número de coupling layers por bloque para modelo 4 (default: 4)'
+    )
+    parser.add_argument(
+        '--model4_output_dir',
+        type=str,
+        default=None,
+        help='Directorio de salida para modelo 4 (default: modelos/modelo4_fastflow/outputs/)'
+    )
+    
+    # Parámetros modelo 5 (STPM)
+    parser.add_argument(
+        '--model5_backbone',
+        type=str,
+        default='resnet18',
+        choices=['resnet18', 'resnet50', 'wide_resnet50_2'],
+        help='Backbone para modelo 5 (default: resnet18)'
+    )
+    parser.add_argument(
+        '--model5_lr',
+        type=float,
+        default=1e-4,
+        help='Learning rate para modelo 5 (default: 1e-4)'
+    )
+    parser.add_argument(
+        '--model5_output_dir',
+        type=str,
+        default=None,
+        help='Directorio de salida para modelo 5 (default: modelos/modelo5_stpm/outputs/)'
+    )
+    
     args = parser.parse_args()
     
     # Determinar qué modelos entrenar
@@ -303,42 +445,71 @@ Ejemplos de uso:
             entrenar_modelo1_flag = True
             entrenar_modelo2_flag = True
             entrenar_modelo3_flag = True
+            entrenar_modelo4_flag = True
+            entrenar_modelo5_flag = True
         elif args.modelo == '1':
             entrenar_modelo1_flag = True
             entrenar_modelo2_flag = False
             entrenar_modelo3_flag = False
+            entrenar_modelo4_flag = False
+            entrenar_modelo5_flag = False
         elif args.modelo == '2':
             entrenar_modelo1_flag = False
             entrenar_modelo2_flag = True
             entrenar_modelo3_flag = False
+            entrenar_modelo4_flag = False
+            entrenar_modelo5_flag = False
         elif args.modelo == '3':
             entrenar_modelo1_flag = False
             entrenar_modelo2_flag = False
             entrenar_modelo3_flag = True
+            entrenar_modelo4_flag = False
+            entrenar_modelo5_flag = False
+        elif args.modelo == '4':
+            entrenar_modelo1_flag = False
+            entrenar_modelo2_flag = False
+            entrenar_modelo3_flag = False
+            entrenar_modelo4_flag = True
+            entrenar_modelo5_flag = False
+        elif args.modelo == '5':
+            entrenar_modelo1_flag = False
+            entrenar_modelo2_flag = False
+            entrenar_modelo3_flag = False
+            entrenar_modelo4_flag = False
+            entrenar_modelo5_flag = True
     elif args.all:
         # Opción antigua --all
         entrenar_modelo1_flag = True
         entrenar_modelo2_flag = True
         entrenar_modelo3_flag = True
+        entrenar_modelo4_flag = True
+        entrenar_modelo5_flag = True
     else:
         # Opciones antiguas individuales
         entrenar_modelo1_flag = args.model1
         entrenar_modelo2_flag = args.model2
         entrenar_modelo3_flag = args.model3
+        entrenar_modelo4_flag = args.model4
+        entrenar_modelo5_flag = args.model5
     
     # Si no se especifica ninguno, mostrar ayuda
-    if not any([entrenar_modelo1_flag, entrenar_modelo2_flag, entrenar_modelo3_flag]):
+    if not any([entrenar_modelo1_flag, entrenar_modelo2_flag, entrenar_modelo3_flag, 
+                entrenar_modelo4_flag, entrenar_modelo5_flag]):
         parser.print_help()
         print("\nERROR: Debes especificar al menos un modelo para entrenar.")
         print("\nOpciones:")
         print("  --modelo 1        Entrenar solo modelo 1 (Autoencoder)")
         print("  --modelo 2        Entrenar solo modelo 2 (Features)")
         print("  --modelo 3        Entrenar solo modelo 3 (Transformer)")
+        print("  --modelo 4        Entrenar solo modelo 4 (FastFlow)")
+        print("  --modelo 5        Entrenar solo modelo 5 (STPM)")
         print("  --modelo all      Entrenar todos los modelos")
         print("\nOpciones alternativas (compatibilidad):")
         print("  --model1          Entrenar modelo 1")
         print("  --model2          Entrenar modelo 2")
         print("  --model3          Entrenar modelo 3")
+        print("  --model4          Entrenar modelo 4")
+        print("  --model5          Entrenar modelo 5")
         print("  --all             Entrenar todos los modelos")
         return
     
@@ -355,6 +526,8 @@ Ejemplos de uso:
     print(f"  - Modelo 1 (Autoencoder): {'Sí' if entrenar_modelo1_flag else 'No'}")
     print(f"  - Modelo 2 (Features): {'Sí' if entrenar_modelo2_flag else 'No'}")
     print(f"  - Modelo 3 (Transformer): {'Sí' if entrenar_modelo3_flag else 'No'}")
+    print(f"  - Modelo 4 (FastFlow): {'Sí' if entrenar_modelo4_flag else 'No'}")
+    print(f"  - Modelo 5 (STPM): {'Sí' if entrenar_modelo5_flag else 'No'}")
     print("="*70)
     
     inicio_total = time.time()
@@ -384,6 +557,22 @@ Ejemplos de uso:
         resultados['modelo3'] = {'exito': exito, 'tiempo': tiempo}
         if not exito:
             print("ERROR: Falló el entrenamiento del modelo 3")
+    
+    if entrenar_modelo4_flag:
+        inicio = time.time()
+        exito = entrenar_modelo4(args)
+        tiempo = time.time() - inicio
+        resultados['modelo4'] = {'exito': exito, 'tiempo': tiempo}
+        if not exito:
+            print("ERROR: Falló el entrenamiento del modelo 4")
+    
+    if entrenar_modelo5_flag:
+        inicio = time.time()
+        exito = entrenar_modelo5(args)
+        tiempo = time.time() - inicio
+        resultados['modelo5'] = {'exito': exito, 'tiempo': tiempo}
+        if not exito:
+            print("ERROR: Falló el entrenamiento del modelo 5")
     
     # Resumen final
     tiempo_total = time.time() - inicio_total

@@ -58,3 +58,4 @@ Este documento aclara qué modelos base se utilizan en cada uno de los tres mode
 - Modelo 2: La distribución estadística de features normales
 - Modelo 3: El clasificador k-NN con features normales
 
+

@@ -74,10 +74,12 @@ def main():
         description='Entrenar 3 variantes del modelo 3 para comparación',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Este script entrena automáticamente 3 variantes del modelo 3:
+Este script entrena automáticamente todas las variantes del modelo 3:
 1. ViT Base + k-NN (k=5) - Clasificador k-NN tradicional
 2. ViT Base + Isolation Forest - Clasificador basado en árboles
 3. ViT Base + One-Class SVM - Clasificador basado en SVM
+4. ViT Base + LOF - Local Outlier Factor
+5. ViT Base + Elliptic Envelope - Envolvente elíptica
 
 Todas las variantes usan la misma configuración base (data_dir, patch_size, etc.)
 pero diferentes clasificadores de anomalías.
@@ -122,19 +124,29 @@ pero diferentes clasificadores de anomalías.
         help='Aplicar preprocesamiento de 3 canales (default: False, imágenes ya preprocesadas)'
     )
     parser.add_argument(
-        '--skip_vit_base_k5',
+        '--skip_knn',
         action='store_true',
-        help='Saltar entrenamiento de ViT Base k=5'
+        help='Saltar entrenamiento de k-NN'
     )
     parser.add_argument(
-        '--skip_vit_base_k10',
+        '--skip_isolation_forest',
         action='store_true',
-        help='Saltar entrenamiento de ViT Base k=10'
+        help='Saltar entrenamiento de Isolation Forest'
     )
     parser.add_argument(
-        '--skip_vit_large_k5',
+        '--skip_one_class_svm',
         action='store_true',
-        help='Saltar entrenamiento de ViT Large k=5'
+        help='Saltar entrenamiento de One-Class SVM'
+    )
+    parser.add_argument(
+        '--skip_lof',
+        action='store_true',
+        help='Saltar entrenamiento de LOF (Local Outlier Factor)'
+    )
+    parser.add_argument(
+        '--skip_elliptic_envelope',
+        action='store_true',
+        help='Saltar entrenamiento de Elliptic Envelope'
     )
     
     args = parser.parse_args()
@@ -155,12 +167,12 @@ pero diferentes clasificadores de anomalías.
     if args.aplicar_preprocesamiento:
         args_base['aplicar_preprocesamiento'] = True
     
-    # Definir variantes
+    # Definir variantes - Todas las variantes disponibles
     variantes = []
     
-    if not args.skip_vit_base_k5:
+    if not args.skip_knn:
         variantes.append({
-            'nombre': 'ViT Base + k-NN',
+            'nombre': 'ViT Base + k-NN (k=5)',
             'args': {
                 'model_name': 'google/vit-base-patch16-224',
                 'classifier_type': 'knn',
@@ -168,7 +180,7 @@ pero diferentes clasificadores de anomalías.
             }
         })
     
-    if not args.skip_vit_base_k10:
+    if not args.skip_isolation_forest:
         variantes.append({
             'nombre': 'ViT Base + Isolation Forest',
             'args': {
@@ -178,13 +190,34 @@ pero diferentes clasificadores de anomalías.
             }
         })
     
-    if not args.skip_vit_large_k5:
+    if not args.skip_one_class_svm:
         variantes.append({
             'nombre': 'ViT Base + One-Class SVM',
             'args': {
                 'model_name': 'google/vit-base-patch16-224',
                 'classifier_type': 'one_class_svm',
                 'nu': 0.1
+            }
+        })
+    
+    if not args.skip_lof:
+        variantes.append({
+            'nombre': 'ViT Base + LOF (Local Outlier Factor)',
+            'args': {
+                'model_name': 'google/vit-base-patch16-224',
+                'classifier_type': 'lof',
+                'n_neighbors': 5,
+                'contamination': 0.1
+            }
+        })
+    
+    if not args.skip_elliptic_envelope:
+        variantes.append({
+            'nombre': 'ViT Base + Elliptic Envelope',
+            'args': {
+                'model_name': 'google/vit-base-patch16-224',
+                'classifier_type': 'elliptic_envelope',
+                'contamination': 0.1
             }
         })
     

@@ -8,19 +8,18 @@ import time
 import pickle
 from pathlib import Path
 from datetime import datetime
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
-from modelos.modelo3_transformer.classifiers import crear_clasificador, AnomalyClassifier
-
-# Agregar rutas al path
+# Agregar rutas al path PRIMERO, antes de importar módulos locales
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "preprocesamiento"))
 
 import config
+from modelos.modelo3_transformer.classifiers import crear_clasificador, AnomalyClassifier
 from modelos.modelo3_transformer.vit_feature_extractor import ViTFeatureExtractor
 from modelos.modelo3_transformer.utils import procesar_imagen_inferencia
 from preprocesamiento import cargar_y_preprocesar_3canales
@@ -277,6 +276,18 @@ Ejemplo de uso:
         action='store_true',
         default=False,
         help='Aplicar preprocesamiento de 3 canales (default: False, imágenes ya preprocesadas)'
+    )
+    parser.add_argument(
+        '--usar_patches',
+        action='store_true',
+        default=False,
+        help='Usar segmentación en parches en lugar de escalamiento completo (default: False)'
+    )
+    parser.add_argument(
+        '--img_size',
+        type=int,
+        default=None,
+        help=f'Tamaño de imagen cuando NO se usa segmentación (default: {config.IMG_SIZE})'
     )
     
     args = parser.parse_args()

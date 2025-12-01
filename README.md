@@ -35,10 +35,27 @@ TesisMDP/
 │   │   └── outputs/             # Resultados del modelo 2
 │   └── modelo3_transformer/
 │       ├── main.py              # Script principal de inferencia
+│       ├── train.py             # Script de entrenamiento individual
+│       ├── train_all_variants.py # Script para entrenar todas las variantes
 │       ├── utils.py             # Utilidades del modelo
 │       ├── vit_feature_extractor.py # Extractor de features ViT
+│       ├── classifiers.py       # Clasificadores de anomalías (k-NN, Isolation Forest, etc.)
 │       ├── models/              # Modelos entrenados (.pkl)
 │       └── outputs/              # Resultados del modelo 3
+│   ├── modelo4_fastflow/
+│       ├── main.py              # Script principal (entrenamiento y evaluación)
+│       ├── models.py            # Arquitectura FastFlow (backbone + flows)
+│       ├── dataset.py           # Dataset PyTorch
+│       ├── utils.py             # Funciones auxiliares (métricas, visualizaciones)
+│       ├── models/              # Modelos entrenados (.pt)
+│       └── outputs/             # Resultados del modelo 4
+│   └── modelo5_stpm/
+│       ├── main.py              # Script principal (entrenamiento y evaluación)
+│       ├── models.py            # Arquitectura STPM (teacher + student)
+│       ├── dataset.py           # Dataset PyTorch
+│       ├── utils.py             # Funciones auxiliares (métricas, visualizaciones)
+│       ├── models/              # Modelos entrenados (.pt)
+│       └── outputs/             # Resultados del modelo 5
 ```
 
 ## Descripción de los Modelos
@@ -58,11 +75,36 @@ TesisMDP/
 - **Entrada**: Imágenes de 3 canales (resultado del preprocesamiento común)
 - **Salida**: Mapa de anomalía y overlay
 
-### Modelo 3: Vision Transformer con k-NN
-- **Tipo**: Vision Transformer preentrenado con k-Nearest Neighbors
-- **Funcionamiento**: Extrae features usando ViT y compara con features normales usando k-NN.
+### Modelo 3: Vision Transformer con Múltiples Clasificadores
+- **Tipo**: Vision Transformer preentrenado con diferentes clasificadores de anomalías
+- **Funcionamiento**: Extrae features usando ViT y compara con features normales usando diferentes algoritmos de detección de anomalías.
+- **Clasificadores disponibles**:
+  - **k-NN (k-Nearest Neighbors)**: Compara con k vecinos más cercanos
+  - **Isolation Forest**: Detecta anomalías mediante aislamiento
+  - **One-Class SVM**: Clasificador de una clase basado en SVM
+  - **LOF (Local Outlier Factor)**: Detecta outliers locales
+  - **Elliptic Envelope**: Ajusta una envolvente elíptica a los datos normales
 - **Entrada**: Imágenes de 3 canales (resultado del preprocesamiento común)
 - **Salida**: Mapa de anomalía, mapa binario y visualización
+
+### Modelo 4: FastFlow
+- **Tipo**: Normalizing Flows sobre features CNN
+- **Funcionamiento**: 
+  - Usa un backbone CNN preentrenado (ResNet18/50) para extraer features de múltiples escalas
+  - Aplica normalizing flows (coupling layers) para mapear features normales a distribución gaussiana estándar
+  - Durante inferencia, calcula la probabilidad bajo el flow; baja probabilidad = anomalía
+- **Entrada**: Imágenes de 3 canales (resultado del preprocesamiento común)
+- **Salida**: Mapa de anomalía por píxel, heatmaps, métricas (AUROC imagen/píxel)
+
+### Modelo 5: STPM (Student-Teacher Feature Matching)
+- **Tipo**: Student-Teacher network con feature matching
+- **Funcionamiento**:
+  - **Teacher**: Red CNN preentrenada (ResNet18/50/WideResNet50-2) congelada
+  - **Student**: Misma arquitectura pero inicializada aleatoriamente, entrenada para imitar features del teacher
+  - Solo se entrena con imágenes normales
+  - Durante inferencia, la discrepancia entre features de teacher y student indica anomalías
+- **Entrada**: Imágenes de 3 canales (resultado del preprocesamiento común)
+- **Salida**: Mapa de anomalía por píxel, heatmaps, métricas (AUROC imagen)
 
 ## Preprocesamiento del Dataset
 
@@ -110,7 +152,20 @@ Los modelos entrenados se guardan en las siguientes carpetas:
 
 - **Modelo 3 (Transformer)**: `modelos/modelo3_transformer/models/`
   - Formato: archivos `.pkl` (Pickle)
-  - Ejemplo: `vit_knn_model.pkl`
+  - Ejemplos: 
+    - `vit_knn_k5_vit-base-patch16-224.pkl` (k-NN con k=5)
+    - `vit_iforest_c0.1_vit-base-patch16-224.pkl` (Isolation Forest)
+    - `vit_ocsvm_nu0.1_vit-base-patch16-224.pkl` (One-Class SVM)
+    - `vit_lof_k5_vit-base-patch16-224.pkl` (LOF)
+    - `vit_elliptic_c0.1_vit-base-patch16-224.pkl` (Elliptic Envelope)
+
+- **Modelo 4 (FastFlow)**: `modelos/modelo4_fastflow/models/`
+  - Formato: archivos `.pt` (PyTorch)
+  - Ejemplo: `fastflow_resnet18_256.pt`
+
+- **Modelo 5 (STPM)**: `modelos/modelo5_stpm/models/`
+  - Formato: archivos `.pt` (PyTorch)
+  - Ejemplo: `stpm_resnet18_256.pt`
 
 **Nota**: Los archivos de modelos (`.pt`, `.pkl`) están excluidos del repositorio por `.gitignore` debido a su tamaño. Debes entrenar los modelos localmente o descargarlos por separado.
 
@@ -147,8 +202,20 @@ Este script elimina bordes negros y corrige la inclinación de los tableros. **Y
 
 ```bash
 # Desde la raíz del proyecto
+python train_all_models.py --modelo all --data_dir "ruta/al/dataset"
+```
+
+O usando las opciones alternativas:
+```bash
 python train_all_models.py --all --data_dir "ruta/al/dataset"
 ```
+
+**Nota importante**: 
+- **Modelo 1**: Entrena 3 variantes (original, ResNet18, ResNet50) automáticamente
+- **Modelo 2**: Entrena 3 variantes (ResNet18, ResNet50, WideResNet50-2) automáticamente
+- **Modelo 3**: Entrena 5 variantes (k-NN, Isolation Forest, One-Class SVM, LOF, Elliptic Envelope) automáticamente
+- **Modelo 4**: Entrena FastFlow con el backbone especificado
+- **Modelo 5**: Entrena STPM con el backbone especificado
 
 ### Entrenar modelos individuales
 
@@ -232,22 +299,112 @@ python train.py --data "ruta/al/dataset" [opciones]
 
 #### Modelo 3: Vision Transformer
 
+**Opción A: Entrenar una variante individual**
+
 ```bash
 cd modelos/modelo3_transformer
-python train.py --datos "ruta/al/dataset" [opciones]
+python train.py --data_dir "ruta/al/dataset" [opciones]
 ```
 
-**Nota**: El script de entrenamiento del modelo 3 debe ser creado. Consulta la documentación original del modelo.
+**Opción B: Entrenar todas las variantes para comparación (RECOMENDADO)**
+
+```bash
+cd modelos/modelo3_transformer
+python train_all_variants.py --data_dir "ruta/al/dataset" [opciones]
+```
+
+Este script entrena automáticamente 5 modelos con diferentes clasificadores:
+1. `vit_knn_k5_vit-base-patch16-224.pkl` - k-NN (k=5)
+2. `vit_iforest_c0.1_vit-base-patch16-224.pkl` - Isolation Forest
+3. `vit_ocsvm_nu0.1_vit-base-patch16-224.pkl` - One-Class SVM
+4. `vit_lof_k5_vit-base-patch16-224.pkl` - LOF (Local Outlier Factor)
+5. `vit_elliptic_c0.1_vit-base-patch16-224.pkl` - Elliptic Envelope
+
+**Por defecto**: Usa imágenes preprocesadas desde `config.DATASET_PATH`, NO aplica preprocesamiento (asume imágenes ya procesadas), y usa escalamiento completo de imagen (no parches).
+
+Opciones principales de `train_all_variants.py`:
+- `--data_dir`: Directorio raíz con carpetas 0-9 (default: desde config.py)
+- `--output_dir`: Directorio para guardar modelos (default: models/)
+- `--patch_size`: Tamaño de los parches cuando se usa segmentación (default: 224)
+- `--overlap`: Solapamiento entre parches (default: 0.3)
+- `--batch_size`: Tamaño de batch para ViT (default: 32)
+- `--aplicar_preprocesamiento`: Aplicar preprocesamiento de 3 canales (default: False)
+- `--skip_knn`: Saltar entrenamiento de k-NN
+- `--skip_isolation_forest`: Saltar entrenamiento de Isolation Forest
+- `--skip_one_class_svm`: Saltar entrenamiento de One-Class SVM
+- `--skip_lof`: Saltar entrenamiento de LOF
+- `--skip_elliptic_envelope`: Saltar entrenamiento de Elliptic Envelope
+
+Opciones principales de `train.py` (entrenamiento individual):
+- `--data_dir`: Directorio raíz con carpetas 0-9 (default: desde config.py)
+- `--output_dir`: Directorio para guardar modelo (default: models/)
+- `--model_name`: Nombre del modelo ViT preentrenado (default: google/vit-base-patch16-224)
+- `--patch_size`: Tamaño de los parches (default: 224)
+- `--overlap`: Solapamiento entre parches (default: 0.3)
+- `--batch_size`: Tamaño de batch para ViT (default: 32)
+- `--classifier_type`: Tipo de clasificador (knn, isolation_forest, one_class_svm, lof, elliptic_envelope, default: knn)
+- `--n_neighbors`: Número de vecinos para k-NN/LOF (default: 5)
+- `--contamination`: Proporción esperada de outliers (default: 0.1)
+- `--nu`: Parámetro nu para One-Class SVM (default: 0.1)
+- `--aplicar_preprocesamiento`: Aplicar preprocesamiento de 3 canales (default: False)
+- `--usar_patches`: Usar segmentación en parches (default: False, usa escalamiento completo)
+- `--img_size`: Tamaño de imagen cuando NO se usa segmentación (default: desde config.py)
+
+Ejemplos:
+```bash
+# Entrenar todas las variantes para comparación
+python train_all_variants.py --data_dir "../../dataset/clases" --batch_size 32
+
+# Entrenar solo k-NN individual
+python train.py --data_dir "../../dataset/clases" --classifier_type knn --n_neighbors 5
+
+# Entrenar Isolation Forest individual
+python train.py --data_dir "../../dataset/clases" --classifier_type isolation_forest --contamination 0.1
+```
 
 ### Entrenar modelos seleccionados
 
 ```bash
-# Entrenar solo modelo 1 y 2
-python train_all_models.py --model1 --model2 --data_dir "ruta/al/dataset"
+# Entrenar solo modelo 1 (entrena 3 variantes automáticamente)
+python train_all_models.py --modelo 1 --data_dir "ruta/al/dataset"
 
-# Entrenar modelo 1 con transfer learning
-python train_all_models.py --model1 --model1_transfer_learning --model1_encoder resnet50 --data_dir "ruta/al/dataset"
+# Entrenar solo modelo 2 (entrena 3 variantes automáticamente)
+python train_all_models.py --modelo 2 --data_dir "ruta/al/dataset"
+
+# Entrenar solo modelo 3 (entrena 5 variantes automáticamente)
+python train_all_models.py --modelo 3 --data_dir "ruta/al/dataset"
+
+# Entrenar solo modelo 4 (FastFlow)
+python train_all_models.py --modelo 4 --data_dir "ruta/al/dataset"
+
+# Entrenar solo modelo 5 (STPM)
+python train_all_models.py --modelo 5 --data_dir "ruta/al/dataset"
+
+# Entrenar modelo 1 y 2
+python train_all_models.py --modelo 1 --modelo 2 --data_dir "ruta/al/dataset"
+
+# Entrenar modelo 4 con parámetros personalizados
+python train_all_models.py --modelo 4 --model4_backbone resnet50 --model4_lr 5e-5
+
+# Entrenar modelo 5 con WideResNet
+python train_all_models.py --modelo 5 --model5_backbone wide_resnet50_2
+
+# Opciones alternativas (compatibilidad):
+python train_all_models.py --model1 --model2 --data_dir "ruta/al/dataset"
+python train_all_models.py --model4 --model5 --data_dir "ruta/al/dataset"
 ```
+
+**Parámetros específicos para modelo 4 (FastFlow):**
+- `--model4_backbone`: Backbone CNN (`resnet18` o `resnet50`, default: `resnet18`)
+- `--model4_lr`: Learning rate (default: `1e-4`)
+- `--model4_flow_steps`: Número de bloques de flow (default: `4`)
+- `--model4_coupling_layers`: Número de coupling layers por bloque (default: `4`)
+- `--model4_output_dir`: Directorio de salida (default: `modelos/modelo4_fastflow/outputs/`)
+
+**Parámetros específicos para modelo 5 (STPM):**
+- `--model5_backbone`: Backbone CNN (`resnet18`, `resnet50` o `wide_resnet50_2`, default: `resnet18`)
+- `--model5_lr`: Learning rate (default: `1e-4`)
+- `--model5_output_dir`: Directorio de salida (default: `modelos/modelo5_stpm/outputs/`)
 
 ## Uso (Inferencia)
 
@@ -427,24 +584,33 @@ python main.py --image "../../dataset/imagen.png" --model "models/distribucion_f
 
 ```bash
 cd modelos/modelo3_transformer
-python main.py --imagen "ruta/a/imagen.png" --modelo "models/vit_knn_model.pkl" [opciones]
+python main.py --imagen "ruta/a/imagen.png" --modelo "models/vit_knn_k5_vit-base-patch16-224.pkl" [opciones]
 ```
 
 Opciones principales:
 - `--imagen`: Ruta a la imagen de prueba (requerido)
 - `--modelo`: Ruta al modelo entrenado (requerido)
 - `--output`: Directorio de salida (default: outputs/)
-- `--patch_size`: Tamaño de los parches (default: 224)
+- `--patch_size`: Tamaño de los parches cuando se usa segmentación (default: 224)
 - `--overlap`: Solapamiento entre parches (default: 0.3)
 - `--umbral`: Umbral absoluto de distancia (opcional)
 - `--percentil`: Percentil para umbral automático (default: 95)
 - `--batch_size`: Tamaño de batch (default: 32)
 - `--model_name`: Nombre del modelo ViT (default: google/vit-base-patch16-224)
-- `--aplicar_preprocesamiento`: Aplicar preprocesamiento de 3 canales (default: True)
+- `--aplicar_preprocesamiento`: Aplicar preprocesamiento de 3 canales (default: False, imágenes ya preprocesadas)
+- `--usar_patches`: Usar segmentación en parches (default: False, usa escalamiento completo)
+- `--img_size`: Tamaño de imagen cuando NO se usa segmentación (default: desde config.py)
 
-Ejemplo:
+Ejemplos:
 ```bash
-python main.py --imagen "../../dataset/imagen.png" --modelo "models/vit_knn_model.pkl" --patch_size 224 --overlap 0.3
+# Inferencia con modelo k-NN
+python main.py --imagen "../../dataset/imagen.png" --modelo "models/vit_knn_k5_vit-base-patch16-224.pkl"
+
+# Inferencia con modelo Isolation Forest
+python main.py --imagen "../../dataset/imagen.png" --modelo "models/vit_iforest_c0.1_vit-base-patch16-224.pkl"
+
+# Inferencia con segmentación en parches
+python main.py --imagen "../../dataset/imagen.png" --modelo "models/vit_knn_k5_vit-base-patch16-224.pkl" --usar_patches --patch_size 224 --overlap 0.3
 ```
 
 ## Resultados
@@ -467,6 +633,16 @@ Cada modelo guarda sus resultados en su respectiva carpeta `outputs/`:
 - `mapa_binario_{nombre}_{timestamp}.png`: Mapa binario de anomalías
 - `visualizacion_{nombre}_{timestamp}.png`: Visualización con 3 paneles y metadatos
 - `inference_{nombre}_{timestamp}.log`: Log de inferencia con estadísticas
+
+### Modelo 4 (FastFlow)
+- `results_fastflow_*.csv`: Resultados por imagen (ruta, etiqueta, score, predicción)
+- `metrics_fastflow_*.json`: Métricas agregadas (AUROC imagen/píxel)
+- `anomaly_map_*.png`: Mapas de anomalía superpuestos sobre imágenes originales
+
+### Modelo 5 (STPM)
+- `results_stpm_*.csv`: Resultados por imagen (ruta, etiqueta, score, predicción)
+- `metrics_stpm_*.json`: Métricas agregadas (AUROC imagen)
+- `anomaly_map_*.png`: Mapas de anomalía superpuestos sobre imágenes originales
 
 **Nota**: Todas las imágenes de salida incluyen anotaciones con el tiempo de inferencia y el número de subimágenes (parches) generadas.
 
@@ -500,7 +676,7 @@ Requisitos principales:
 
 4. **Tiempo de inferencia**: Cada modelo registra el tiempo de inferencia y el número de subimágenes generadas, y esta información se incluye en las imágenes de salida.
 
-5. **Comparación justa**: Al usar el mismo preprocesamiento, los tres modelos procesan exactamente las mismas imágenes, permitiendo una comparación justa de sus resultados.
+5. **Comparación justa**: Al usar el mismo preprocesamiento, los cinco modelos procesan exactamente las mismas imágenes, permitiendo una comparación justa de sus resultados.
 
 ## Inferencia Masiva
 
@@ -516,6 +692,14 @@ python inferir_todas_imagenes.py --modelo 2
 
 # Modelo 3 (Transformer)
 python inferir_todas_imagenes.py --modelo 3
+
+# Modelo 4 (FastFlow) - Nota: Actualmente requiere ejecutar main.py directamente
+cd modelos/modelo4_fastflow
+python main.py --mode eval --model_path models/fastflow_resnet18_256.pt
+
+# Modelo 5 (STPM) - Nota: Actualmente requiere ejecutar main.py directamente
+cd modelos/modelo5_stpm
+python main.py --mode eval --model_path models/stpm_resnet18_256.pt
 ```
 
 Este script:
@@ -525,7 +709,7 @@ Este script:
 - Cada imagen incluye el tiempo de inferencia en los metadatos
 
 **Opciones principales:**
-- `--modelo`: Modelo a usar (1, 2 o 3) - **REQUERIDO**
+- `--modelo`: Modelo a usar (1, 2 o 3) - **REQUERIDO** (modelos 4 y 5 usan main.py directamente)
 - `--input_dir`: Directorio con imágenes (default: Inferencia/)
 - `--output_dir`: Directorio base de salida (default: Resultados_Inferencia/resultado_inferencia_modelo_X/)
 - `--modelos_dir`: Directorio donde están los modelos (default según modelo seleccionado)
@@ -571,14 +755,18 @@ Resultados_Inferencia/
 │   ├── resnet50/
 │   └── wide_resnet50_2/
 └── resultado_inferencia_modelo_3/
-    └── vit/
+    ├── knn_k5/
+    ├── iforest_c0.1/
+    ├── ocsvm_nu0.1/
+    ├── lof_k5/
+    └── elliptic_c0.1/
 ```
 
-**Nota:** El script detecta automáticamente qué variantes están disponibles según los modelos entrenados encontrados en el directorio `models/` de cada modelo.
+**Nota:** El script detecta automáticamente qué variantes están disponibles según los modelos entrenados encontrados en el directorio `models/` de cada modelo. Los modelos 4 y 5 actualmente se ejecutan directamente con `main.py`.
 
 ## Ejecutar todos los modelos
 
-Para ejecutar los tres modelos en la misma imagen:
+Para ejecutar los cinco modelos en la misma imagen:
 
 ```bash
 # Modelo 1
@@ -589,10 +777,118 @@ python main.py --image_path "../../dataset/imagen.png" --model_path "models/auto
 cd ../modelo2_features
 python main.py --image "../../dataset/imagen.png" --model "models/distribucion_features_wide_resnet50_2_preproc.pkl"
 
-# Modelo 3
+# Modelo 3 (ejemplo con k-NN)
 cd ../modelo3_transformer
-python main.py --imagen "../../dataset/imagen.png" --modelo "models/vit_knn_model.pkl"
+python main.py --imagen "../../dataset/imagen.png" --modelo "models/vit_knn_k5_vit-base-patch16-224.pkl"
+
+# Modelo 4 (FastFlow) - Evaluación sobre dataset completo
+cd ../modelo4_fastflow
+python main.py --mode eval --model_path "models/fastflow_resnet18_256.pt" --save_samples
+
+# Modelo 5 (STPM) - Evaluación sobre dataset completo
+cd ../modelo5_stpm
+python main.py --mode eval --model_path "models/stpm_resnet18_256.pt" --save_samples
 ```
 
 Los resultados se guardarán en las respectivas carpetas `outputs/` de cada modelo.
+
+**Nota:** Los modelos 4 y 5 evalúan sobre el dataset completo (carpetas `valid/normal/` y `valid/defectuoso/`), no sobre imágenes individuales. Para inferencia de una sola imagen, sería necesario agregar esa funcionalidad a los scripts `main.py`.
+
+## Modelo 4: FastFlow
+
+FastFlow es un método de detección de anomalías basado en **Normalizing Flows** que mapea las características de imágenes normales a una distribución gaussiana estándar usando coupling layers.
+
+### Características
+
+- **Backbone CNN**: ResNet18 o ResNet50 preentrenado para extraer features de múltiples escalas
+- **Normalizing Flows**: Coupling layers que transforman features normales a distribución gaussiana
+- **Detección**: Baja probabilidad bajo el flow = anomalía
+
+### Uso
+
+```bash
+cd modelos/modelo4_fastflow
+
+# Entrenar y evaluar
+python main.py --mode train_eval --backbone resnet18 --img_size 256 --epochs 50 --batch_size 16
+
+# Solo entrenar
+python main.py --mode train --backbone resnet18 --epochs 50
+
+# Solo evaluar (requiere modelo entrenado)
+python main.py --mode eval --model_path models/fastflow_resnet18_256.pt --save_samples
+```
+
+### Opciones principales
+
+- `--mode`: `train`, `eval` o `train_eval` (default: `train_eval`)
+- `--data_dir`: Directorio del dataset (default: desde `config.py`)
+- `--backbone`: `resnet18` o `resnet50` (default: `resnet18`)
+- `--img_size`: Tamaño de imagen (default: 256)
+- `--batch_size`: Tamaño de batch (default: 16)
+- `--epochs`: Número de épocas (default: 50)
+- `--lr`: Learning rate (default: 1e-4)
+- `--flow_steps`: Número de bloques de flow (default: 4)
+- `--coupling_layers`: Número de coupling layers por bloque (default: 4)
+- `--save_samples`: Guardar imágenes de ejemplo con mapas de anomalía
+- `--num_samples`: Número de imágenes de ejemplo (default: 10)
+
+### Salidas
+
+- `outputs/results_fastflow_*.csv`: Resultados por imagen (ruta, etiqueta, score, predicción)
+- `outputs/metrics_fastflow_*.json`: Métricas agregadas (AUROC imagen/píxel)
+- `outputs/anomaly_map_*.png`: Mapas de anomalía superpuestos sobre imágenes (si `--save_samples`)
+
+## Modelo 5: STPM (Student-Teacher Feature Matching)
+
+STPM es un método de detección de anomalías basado en el aprendizaje de un **Student network** que imita las features de un **Teacher network** preentrenado y congelado.
+
+### Características
+
+- **Teacher Network**: CNN preentrenada (ResNet18/50/WideResNet50-2) congelada
+- **Student Network**: Misma arquitectura pero inicializada aleatoriamente, entrenada para imitar teacher
+- **Detección**: Discrepancia entre features de teacher y student = anomalía
+
+### Uso
+
+```bash
+cd modelos/modelo5_stpm
+
+# Entrenar y evaluar
+python main.py --mode train_eval --backbone resnet18 --img_size 256 --epochs 50 --batch_size 16
+
+# Solo entrenar
+python main.py --mode train --backbone wide_resnet50_2 --epochs 50
+
+# Solo evaluar (requiere modelo entrenado)
+python main.py --mode eval --model_path models/stpm_resnet18_256.pt --save_samples
+```
+
+### Opciones principales
+
+- `--mode`: `train`, `eval` o `train_eval` (default: `train_eval`)
+- `--data_dir`: Directorio del dataset (default: desde `config.py`)
+- `--backbone`: `resnet18`, `resnet50` o `wide_resnet50_2` (default: `resnet18`)
+- `--img_size`: Tamaño de imagen (default: 256)
+- `--batch_size`: Tamaño de batch (default: 16)
+- `--epochs`: Número de épocas (default: 50)
+- `--lr`: Learning rate (default: 1e-4)
+- `--save_samples`: Guardar imágenes de ejemplo con mapas de anomalía
+- `--num_samples`: Número de imágenes de ejemplo (default: 10)
+
+### Salidas
+
+- `outputs/results_stpm_*.csv`: Resultados por imagen (ruta, etiqueta, score, predicción)
+- `outputs/metrics_stpm_*.json`: Métricas agregadas (AUROC imagen)
+- `outputs/anomaly_map_*.png`: Mapas de anomalía superpuestos sobre imágenes (si `--save_samples`)
+
+## Comparación de Métodos
+
+Todos los métodos (1-5) comparten:
+- **Mismo preprocesamiento**: Imágenes de 3 canales generadas con el mismo algoritmo
+- **Mismo dataset**: Usan `DATASET_PATH` desde `config.py`
+- **Entrenamiento no supervisado**: Solo con imágenes normales
+- **Evaluación**: Con imágenes normales + defectuosas para calcular métricas
+
+Las métricas guardadas en `outputs/metrics_*.json` permiten comparar directamente el rendimiento de los 5 métodos.
 

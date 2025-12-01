@@ -201,3 +201,4 @@ class AutoencoderTransferLearning(nn.Module):
             param.requires_grad = False
         self.freeze_encoder = True
 
+

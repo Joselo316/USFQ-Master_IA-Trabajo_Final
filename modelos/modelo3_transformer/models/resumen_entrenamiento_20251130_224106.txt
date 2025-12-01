@@ -1,0 +1,12 @@
+RESUMEN DE ENTRENAMIENTO - MODELO 3
+======================================================================
+Fecha: 2025-11-30 22:41:06
+Variantes entrenadas: 5
+
+ViT Base + k-NN (k=5): EXITOSO (4.81 min)
+ViT Base + Isolation Forest: EXITOSO (5.11 min)
+ViT Base + One-Class SVM: EXITOSO (5.91 min)
+ViT Base + LOF (Local Outlier Factor): EXITOSO (6.26 min)
+ViT Base + Elliptic Envelope: EXITOSO (26.41 min)
+
+Tiempo total: 48.50 min

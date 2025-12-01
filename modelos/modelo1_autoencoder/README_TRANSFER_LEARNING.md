@@ -113,3 +113,4 @@ optimizer = torch.optim.Adam([
 - Para datasets muy pequeños, es mejor congelar el encoder
 - Para datasets grandes, el fine-tuning puede mejorar aún más
 
+
