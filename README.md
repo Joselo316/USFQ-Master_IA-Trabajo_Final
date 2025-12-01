@@ -907,6 +907,8 @@ python main.py --mode train_eval \
 
 ### Salidas
 
+- `models/fastflow_*.pt`: Modelo entrenado guardado (checkpoint con estado del modelo y optimizador)
+- `outputs/training_history_fastflow_*.json`: Historial completo de entrenamiento (pérdidas por época, learning rate, configuración)
 - `outputs/results_fastflow_*.csv`: Resultados por imagen (ruta, etiqueta, score, predicción)
 - `outputs/metrics_fastflow_*.json`: Métricas agregadas (AUROC imagen/píxel)
 - `outputs/anomaly_map_*.png`: Mapas de anomalía superpuestos sobre imágenes (si `--save_samples`)
