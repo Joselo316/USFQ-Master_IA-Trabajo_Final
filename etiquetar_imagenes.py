@@ -84,14 +84,25 @@ def obtener_imagenes_en_carpeta(carpeta: Path) -> Set[str]:
     return imagenes
 
 
-def copiar_imagen(origen: Path, destino: Path, contador: Dict[str, int]):
+def procesar_y_guardar_imagen(
+    origen: Path, 
+    destino: Path, 
+    contador: Dict[str, int],
+    aplicar_preprocesamiento: bool = True,
+    tamaño_objetivo: Tuple[int, int] = (256, 256)
+):
     """
-    Copia una imagen de origen a destino, manejando nombres duplicados.
+    Procesa una imagen (preprocesamiento y redimensionamiento) y la guarda.
     
     Args:
         origen: Ruta de origen
         destino: Ruta de destino
         contador: Diccionario para contar copias por nombre
+        aplicar_preprocesamiento: Si True, aplica preprocesamiento de 3 canales
+        tamaño_objetivo: Tamaño objetivo (alto, ancho) para redimensionar
+    
+    Returns:
+        True si se procesó y guardó exitosamente, False en caso contrario
     """
     if not origen.exists():
         return False
@@ -106,10 +117,33 @@ def copiar_imagen(origen: Path, destino: Path, contador: Dict[str, int]):
         destino = parent / nuevo_nombre
     
     try:
-        shutil.copy2(origen, destino)
+        # Aplicar preprocesamiento y redimensionamiento
+        if aplicar_preprocesamiento:
+            # cargar_y_preprocesar_3canales aplica preprocesamiento y redimensiona
+            img_procesada = cargar_y_preprocesar_3canales(
+                str(origen), 
+                tamaño_objetivo=tamaño_objetivo
+            )
+            # La imagen ya está en formato uint8 [0, 255] y 3 canales
+        else:
+            # Solo redimensionar sin preprocesamiento
+            img = cv2.imread(str(origen), cv2.IMREAD_COLOR)
+            if img is None:
+                # Intentar en escala de grises
+                img = cv2.imread(str(origen), cv2.IMREAD_GRAYSCALE)
+                if img is None:
+                    return False
+                # Convertir a 3 canales
+                img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+            
+            alto, ancho = tamaño_objetivo
+            img_procesada = cv2.resize(img, (ancho, alto), interpolation=cv2.INTER_LINEAR)
+        
+        # Guardar imagen procesada
+        cv2.imwrite(str(destino), img_procesada)
         return True
     except Exception as e:
-        print(f"ERROR al copiar {origen.name}: {e}")
+        print(f"ERROR al procesar {origen.name}: {e}")
         return False
 
 
