@@ -19,6 +19,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from preprocesamiento import cargar_y_preprocesar_3canales, auto_crop_borders_improved
+from math import degrees
 
 # Rutas (PROJECT_ROOT ya está definido arriba)
 EVALUACION_DIR = PROJECT_ROOT / "evaluacion"
@@ -85,20 +86,22 @@ def obtener_imagenes_en_carpeta(carpeta: Path) -> Set[str]:
 
 def eliminar_bordes(img: np.ndarray) -> np.ndarray:
     """
-    Elimina bordes negros de la imagen usando el método de correct_board.py.
-    Primero intenta con máscara binaria, luego usa auto_crop_borders_improved.
+    Elimina bordes negros y corrige la inclinación de la imagen usando el algoritmo
+    completo de process_single_image de correct_board.py.
     
     Args:
         img: Imagen en formato numpy array (puede ser grayscale o BGR)
     
     Returns:
-        Imagen con bordes eliminados
+        Imagen con bordes eliminados y orientación corregida
     """
     # Convertir a escala de grises si es necesario
     if len(img.shape) == 3:
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        es_color = True
     else:
         gray = img.copy()
+        es_color = False
     
     # === 1. Crear máscara binaria para detectar área útil ===
     mask = gray > 10  # píxeles mayores a 10 se consideran parte del tablero
@@ -115,7 +118,47 @@ def eliminar_bordes(img: np.ndarray) -> np.ndarray:
         # Aplicar recorte mejorado por si quedan bordes
         img_cropped = auto_crop_borders_improved(img_cropped)
     
-    return img_cropped
+    # Convertir a escala de grises para detección de bordes si es necesario
+    if es_color:
+        gray_cropped = cv2.cvtColor(img_cropped, cv2.COLOR_BGR2GRAY)
+    else:
+        gray_cropped = img_cropped
+    
+    # === 3. Detección de bordes y cálculo de ángulo ===
+    edges = cv2.Canny(gray_cropped, 50, 150)
+    lines = cv2.HoughLines(edges, 1, np.pi/180, 200)
+    
+    avg_angle = 0.0
+    if lines is not None:
+        angles = []
+        for rho, theta in lines[:, 0]:
+            angle = degrees(theta)
+            if 80 < angle < 100 or 260 < angle < 280:
+                angles.append(angle - 90)
+            elif 170 < angle < 190 or 350 < angle < 10:
+                angles.append(angle - 180)
+        if angles:
+            avg_angle = np.median(angles)
+    
+    # Solo rotar si el ángulo es significativo
+    if abs(avg_angle) < 0.5:
+        img_rotated = img_cropped
+    else:
+        # === 4. Rotar imagen para corregir inclinación ===
+        (h, w) = img_cropped.shape[:2]
+        center = (w // 2, h // 2)
+        M = cv2.getRotationMatrix2D(center, avg_angle, 1.0)
+        img_rotated = cv2.warpAffine(
+            img_cropped, 
+            M, 
+            (w, h), 
+            flags=cv2.INTER_LINEAR, 
+            borderMode=cv2.BORDER_REPLICATE
+        )
+        # Recortar bordes nuevamente después de rotación
+        img_rotated = auto_crop_borders_improved(img_rotated)
+    
+    return img_rotated
 
 
 def procesar_y_guardar_imagen(
