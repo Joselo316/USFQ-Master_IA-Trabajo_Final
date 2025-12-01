@@ -19,6 +19,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "preprocesamiento"))
 
 from preprocesamiento import cargar_y_preprocesar_3canales
+from preprocesamiento.correct_board import auto_crop_borders_improved
 
 # Rutas
 PROJECT_ROOT = Path(__file__).parent
@@ -84,15 +85,51 @@ def obtener_imagenes_en_carpeta(carpeta: Path) -> Set[str]:
     return imagenes
 
 
+def eliminar_bordes(img: np.ndarray) -> np.ndarray:
+    """
+    Elimina bordes negros de la imagen usando el método de correct_board.py.
+    Primero intenta con máscara binaria, luego usa auto_crop_borders_improved.
+    
+    Args:
+        img: Imagen en formato numpy array (puede ser grayscale o BGR)
+    
+    Returns:
+        Imagen con bordes eliminados
+    """
+    # Convertir a escala de grises si es necesario
+    if len(img.shape) == 3:
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = img.copy()
+    
+    # === 1. Crear máscara binaria para detectar área útil ===
+    mask = gray > 10  # píxeles mayores a 10 se consideran parte del tablero
+    
+    # === 2. Calcular límites válidos (sin bordes negros) ===
+    rows = np.where(np.mean(mask, axis=1) > 0.1)[0]
+    cols = np.where(np.mean(mask, axis=0) > 0.1)[0]
+    
+    if len(rows) == 0 or len(cols) == 0:
+        # Fallback: usar método mejorado de recorte
+        img_cropped = auto_crop_borders_improved(img)
+    else:
+        img_cropped = img[rows[0]:rows[-1]+1, cols[0]:cols[-1]+1]
+        # Aplicar recorte mejorado por si quedan bordes
+        img_cropped = auto_crop_borders_improved(img_cropped)
+    
+    return img_cropped
+
+
 def procesar_y_guardar_imagen(
     origen: Path, 
     destino: Path, 
     contador: Dict[str, int],
     aplicar_preprocesamiento: bool = True,
-    tamaño_objetivo: Tuple[int, int] = (256, 256)
+    tamaño_objetivo: Tuple[int, int] = (256, 256),
+    eliminar_bordes_imagen: bool = True
 ):
     """
-    Procesa una imagen (preprocesamiento y redimensionamiento) y la guarda.
+    Procesa una imagen (eliminación de bordes, preprocesamiento y redimensionamiento) y la guarda.
     
     Args:
         origen: Ruta de origen
@@ -100,6 +137,7 @@ def procesar_y_guardar_imagen(
         contador: Diccionario para contar copias por nombre
         aplicar_preprocesamiento: Si True, aplica preprocesamiento de 3 canales
         tamaño_objetivo: Tamaño objetivo (alto, ancho) para redimensionar
+        eliminar_bordes_imagen: Si True, elimina bordes negros antes de procesar
     
     Returns:
         True si se procesó y guardó exitosamente, False en caso contrario
@@ -117,27 +155,51 @@ def procesar_y_guardar_imagen(
         destino = parent / nuevo_nombre
     
     try:
-        # Aplicar preprocesamiento y redimensionamiento
+        # Cargar imagen original
+        img_original = cv2.imread(str(origen), cv2.IMREAD_COLOR)
+        if img_original is None:
+            # Intentar en escala de grises
+            img_original = cv2.imread(str(origen), cv2.IMREAD_GRAYSCALE)
+            if img_original is None:
+                return False
+            # Convertir a 3 canales
+            img_original = cv2.cvtColor(img_original, cv2.COLOR_GRAY2BGR)
+        
+        # === 1. Eliminar bordes negros ===
+        if eliminar_bordes_imagen:
+            img_sin_bordes = eliminar_bordes(img_original)
+        else:
+            img_sin_bordes = img_original
+        
+        # === 2. Aplicar preprocesamiento y redimensionamiento ===
         if aplicar_preprocesamiento:
-            # cargar_y_preprocesar_3canales aplica preprocesamiento y redimensiona
-            img_procesada = cargar_y_preprocesar_3canales(
-                str(origen), 
-                tamaño_objetivo=tamaño_objetivo
-            )
+            # Convertir a escala de grises para el preprocesamiento
+            img_gray = cv2.cvtColor(img_sin_bordes, cv2.COLOR_BGR2GRAY)
+            
+            # Guardar temporalmente para usar cargar_y_preprocesar_3canales
+            # (que espera una ruta de archivo)
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                tmp_path = tmp.name
+                cv2.imwrite(tmp_path, img_gray)
+            
+            try:
+                # cargar_y_preprocesar_3canales aplica preprocesamiento y redimensiona
+                img_procesada = cargar_y_preprocesar_3canales(
+                    tmp_path, 
+                    tamaño_objetivo=tamaño_objetivo
+                )
+            finally:
+                # Eliminar archivo temporal
+                import os
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            
             # La imagen ya está en formato uint8 [0, 255] y 3 canales
         else:
             # Solo redimensionar sin preprocesamiento
-            img = cv2.imread(str(origen), cv2.IMREAD_COLOR)
-            if img is None:
-                # Intentar en escala de grises
-                img = cv2.imread(str(origen), cv2.IMREAD_GRAYSCALE)
-                if img is None:
-                    return False
-                # Convertir a 3 canales
-                img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-            
             alto, ancho = tamaño_objetivo
-            img_procesada = cv2.resize(img, (ancho, alto), interpolation=cv2.INTER_LINEAR)
+            img_procesada = cv2.resize(img_sin_bordes, (ancho, alto), interpolation=cv2.INTER_LINEAR)
         
         # Guardar imagen procesada
         cv2.imwrite(str(destino), img_procesada)
@@ -155,7 +217,8 @@ def procesar_carpeta(
     estadisticas: Dict[str, int],
     contador_duplicados: Dict[str, int],
     aplicar_preprocesamiento: bool = True,
-    tamaño_objetivo: Tuple[int, int] = (256, 256)
+    tamaño_objetivo: Tuple[int, int] = (256, 256),
+    eliminar_bordes_imagen: bool = True
 ) -> Tuple[int, int]:
     """
     Procesa una carpeta (train/test/valid) leyendo su CSV y copiando imágenes.
@@ -217,13 +280,14 @@ def procesar_carpeta(
             normal_count += 1
             estadisticas['normal_total'] += 1
         
-        # Procesar y guardar imagen (con preprocesamiento y redimensionamiento)
+        # Procesar y guardar imagen (eliminar bordes, preprocesamiento y redimensionamiento)
         if procesar_y_guardar_imagen(
             imagen_path, 
             destino, 
             contador_duplicados,
             aplicar_preprocesamiento=aplicar_preprocesamiento,
-            tamaño_objetivo=tamaño_objetivo
+            tamaño_objetivo=tamaño_objetivo,
+            eliminar_bordes_imagen=eliminar_bordes_imagen
         ):
             estadisticas[f'{nombre_carpeta}_procesadas'] += 1
         else:
@@ -241,7 +305,8 @@ def procesar_carpeta(
                 destino, 
                 contador_duplicados,
                 aplicar_preprocesamiento=aplicar_preprocesamiento,
-                tamaño_objetivo=tamaño_objetivo
+                tamaño_objetivo=tamaño_objetivo,
+                eliminar_bordes_imagen=eliminar_bordes_imagen
             ):
                 normal_count += 1
                 sin_etiqueta += 1
@@ -311,6 +376,11 @@ Si alguna clase es 1, la imagen tiene fallas.
         default=256,
         help='Tamaño de imagen objetivo (cuadrado) (default: 256)'
     )
+    parser.add_argument(
+        '--no_eliminar_bordes',
+        action='store_true',
+        help='NO eliminar bordes negros antes de procesar'
+    )
     
     args = parser.parse_args()
     
@@ -332,6 +402,7 @@ Si alguna clase es 1, la imagen tiene fallas.
     # Configurar tamaño objetivo
     tamaño_objetivo = (args.img_size, args.img_size)
     aplicar_preprocesamiento = not args.no_preprocesamiento
+    eliminar_bordes_imagen = not args.no_eliminar_bordes
     
     print("="*70)
     print("ETIQUETADO DE IMÁGENES")
@@ -341,6 +412,7 @@ Si alguna clase es 1, la imagen tiene fallas.
     print(f"  Normal: {output_normal}")
     print(f"  Fallas: {output_fallas}")
     print(f"Preprocesamiento: {'Sí (3 canales)' if aplicar_preprocesamiento else 'No (solo redimensionar)'}")
+    print(f"Eliminar bordes: {'Sí' if eliminar_bordes_imagen else 'No'}")
     print(f"Tamaño objetivo: {tamaño_objetivo[0]}x{tamaño_objetivo[1]}")
     print("="*70)
     
