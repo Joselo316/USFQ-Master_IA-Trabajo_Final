@@ -18,8 +18,7 @@ PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "preprocesamiento"))
 
-from preprocesamiento import cargar_y_preprocesar_3canales
-from preprocesamiento.correct_board import auto_crop_borders_improved
+from preprocesamiento import cargar_y_preprocesar_3canales, auto_crop_borders_improved
 
 # Rutas
 PROJECT_ROOT = Path(__file__).parent
