@@ -19,7 +19,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from preprocesamiento import cargar_y_preprocesar_3canales, auto_crop_borders_improved, preprocesar_imagen_3canales
-from math import degrees
+from preprocesamiento.correct_board import process_single_image
+import tempfile
+import os
 
 # Rutas (PROJECT_ROOT ya está definido arriba)
 EVALUACION_DIR = PROJECT_ROOT / "evaluacion"
@@ -84,81 +86,6 @@ def obtener_imagenes_en_carpeta(carpeta: Path) -> Set[str]:
     return imagenes
 
 
-def eliminar_bordes(img: np.ndarray) -> np.ndarray:
-    """
-    Elimina bordes negros y corrige la inclinación de la imagen usando el algoritmo
-    completo de process_single_image de correct_board.py.
-    
-    Args:
-        img: Imagen en formato numpy array (puede ser grayscale o BGR)
-    
-    Returns:
-        Imagen con bordes eliminados y orientación corregida
-    """
-    # Convertir a escala de grises si es necesario
-    if len(img.shape) == 3:
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        es_color = True
-    else:
-        gray = img.copy()
-        es_color = False
-    
-    # === 1. Crear máscara binaria para detectar área útil ===
-    mask = gray > 10  # píxeles mayores a 10 se consideran parte del tablero
-    
-    # === 2. Calcular límites válidos (sin bordes negros) ===
-    rows = np.where(np.mean(mask, axis=1) > 0.1)[0]
-    cols = np.where(np.mean(mask, axis=0) > 0.1)[0]
-    
-    if len(rows) == 0 or len(cols) == 0:
-        # Fallback: usar método mejorado de recorte
-        img_cropped = auto_crop_borders_improved(img)
-    else:
-        img_cropped = img[rows[0]:rows[-1]+1, cols[0]:cols[-1]+1]
-        # Aplicar recorte mejorado por si quedan bordes
-        img_cropped = auto_crop_borders_improved(img_cropped)
-    
-    # Convertir a escala de grises para detección de bordes si es necesario
-    if es_color:
-        gray_cropped = cv2.cvtColor(img_cropped, cv2.COLOR_BGR2GRAY)
-    else:
-        gray_cropped = img_cropped
-    
-    # === 3. Detección de bordes y cálculo de ángulo ===
-    edges = cv2.Canny(gray_cropped, 50, 150)
-    lines = cv2.HoughLines(edges, 1, np.pi/180, 200)
-    
-    avg_angle = 0.0
-    if lines is not None:
-        angles = []
-        for rho, theta in lines[:, 0]:
-            angle = degrees(theta)
-            if 80 < angle < 100 or 260 < angle < 280:
-                angles.append(angle - 90)
-            elif 170 < angle < 190 or 350 < angle < 10:
-                angles.append(angle - 180)
-        if angles:
-            avg_angle = np.median(angles)
-    
-    # Solo rotar si el ángulo es significativo
-    if abs(avg_angle) < 0.5:
-        img_rotated = img_cropped
-    else:
-        # === 4. Rotar imagen para corregir inclinación ===
-        (h, w) = img_cropped.shape[:2]
-        center = (w // 2, h // 2)
-        M = cv2.getRotationMatrix2D(center, avg_angle, 1.0)
-        img_rotated = cv2.warpAffine(
-            img_cropped, 
-            M, 
-            (w, h), 
-            flags=cv2.INTER_LINEAR, 
-            borderMode=cv2.BORDER_REPLICATE
-        )
-        # Recortar bordes nuevamente después de rotación
-        img_rotated = auto_crop_borders_improved(img_rotated)
-    
-    return img_rotated
 
 
 def procesar_y_guardar_imagen(
@@ -196,34 +123,52 @@ def procesar_y_guardar_imagen(
         destino = parent / nuevo_nombre
     
     try:
-        # === 1. Cargar imagen original en escala de grises ===
-        img_gray = cv2.imread(str(origen), cv2.IMREAD_GRAYSCALE)
-        if img_gray is None:
-            # Si no se puede cargar en gris, intentar en color y convertir
-            img_color = cv2.imread(str(origen), cv2.IMREAD_COLOR)
-            if img_color is None:
-                return False
-            img_gray = cv2.cvtColor(img_color, cv2.COLOR_BGR2GRAY)
-        
-        # === 2. Eliminar bordes negros (en escala de grises, ANTES de convertir a 3 canales) ===
+        # === 1. Ejecutar process_single_image de correct_board.py (elimina bordes y corrige orientación) ===
         if eliminar_bordes_imagen:
-            img_sin_bordes = eliminar_bordes(img_gray)
+            # Crear directorio temporal para process_single_image
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                
+                # Ejecutar process_single_image que procesa la imagen y la guarda
+                resultado = process_single_image(str(origen), temp_path)
+                
+                if resultado is None:
+                    # Si falla, cargar imagen original
+                    img_gray = cv2.imread(str(origen), cv2.IMREAD_GRAYSCALE)
+                    if img_gray is None:
+                        img_color = cv2.imread(str(origen), cv2.IMREAD_COLOR)
+                        if img_color is None:
+                            return False
+                        img_gray = cv2.cvtColor(img_color, cv2.COLOR_BGR2GRAY)
+                    img_procesada_correct = img_gray
+                else:
+                    # Cargar imagen procesada por correct_board
+                    img_procesada_correct = cv2.imread(resultado, cv2.IMREAD_GRAYSCALE)
+                    if img_procesada_correct is None:
+                        return False
         else:
-            img_sin_bordes = img_gray
+            # Cargar imagen original sin procesar con correct_board
+            img_gray = cv2.imread(str(origen), cv2.IMREAD_GRAYSCALE)
+            if img_gray is None:
+                img_color = cv2.imread(str(origen), cv2.IMREAD_COLOR)
+                if img_color is None:
+                    return False
+                img_gray = cv2.cvtColor(img_color, cv2.COLOR_BGR2GRAY)
+            img_procesada_correct = img_gray
         
-        # === 3. Redimensionar si es necesario ===
+        # === 2. Redimensionar si es necesario ===
         if tamaño_objetivo is not None:
             alto, ancho = tamaño_objetivo
-            img_sin_bordes = cv2.resize(img_sin_bordes, (ancho, alto), interpolation=cv2.INTER_LINEAR)
+            img_procesada_correct = cv2.resize(img_procesada_correct, (ancho, alto), interpolation=cv2.INTER_LINEAR)
         
-        # === 4. Aplicar preprocesamiento a 3 canales ===
+        # === 3. Aplicar preprocesamiento a 3 canales (después de correct_board) ===
         if aplicar_preprocesamiento:
             # preprocesar_imagen_3canales convierte la imagen en escala de grises a 3 canales
-            img_procesada = preprocesar_imagen_3canales(img_sin_bordes)
+            img_procesada = preprocesar_imagen_3canales(img_procesada_correct)
             # La imagen ya está en formato uint8 [0, 255] y 3 canales
         else:
             # Solo convertir a 3 canales sin preprocesamiento
-            img_procesada = cv2.cvtColor(img_sin_bordes, cv2.COLOR_GRAY2BGR)
+            img_procesada = cv2.cvtColor(img_procesada_correct, cv2.COLOR_GRAY2BGR)
         
         # Guardar imagen procesada
         cv2.imwrite(str(destino), img_procesada)

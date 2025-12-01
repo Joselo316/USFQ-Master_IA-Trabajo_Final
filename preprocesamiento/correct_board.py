@@ -20,7 +20,8 @@ def auto_crop_borders_improved(img: np.ndarray) -> np.ndarray:
     h, w = gray.shape
     
     # Método mejorado: Detectar bordes negros analizando intensidades desde los bordes hacia adentro
-    black_threshold = 30
+    # Usar umbral más bajo para detectar bordes oscuros
+    black_threshold = 20
     
     # Analizar filas desde arriba hacia abajo
     top_crop = 0
@@ -54,10 +55,11 @@ def auto_crop_borders_improved(img: np.ndarray) -> np.ndarray:
             right_crop = x + 1
             break
     
-    # Validación final
+    # Validación final (más permisiva)
     if bottom_crop <= top_crop or right_crop <= left_crop:
         return img
-    if (bottom_crop - top_crop) < 0.2 * h or (right_crop - left_crop) < 0.2 * w:
+    # Reducir el umbral mínimo del 20% al 10% para permitir recortes más agresivos
+    if (bottom_crop - top_crop) < 0.1 * h or (right_crop - left_crop) < 0.1 * w:
         return img
     
     return img[top_crop:bottom_crop, left_crop:right_crop]
@@ -72,18 +74,20 @@ def process_single_image(image_path: str, output_dir: Path) -> Optional[str]:
             return None
         
         # === 1. Crear máscara binaria para detectar área útil ===
-        mask = img > 10  # píxeles mayores a 10 se consideran parte del tablero
+        # Usar umbral más bajo para detectar mejor el contenido del tablero
+        mask = img > 5  # píxeles mayores a 5 se consideran parte del tablero
         
         # === 2. Calcular límites válidos (sin bordes negros) ===
-        rows = np.where(np.mean(mask, axis=1) > 0.1)[0]
-        cols = np.where(np.mean(mask, axis=0) > 0.1)[0]
+        # Usar umbral más bajo para detectar filas/columnas con contenido
+        rows = np.where(np.mean(mask, axis=1) > 0.05)[0]
+        cols = np.where(np.mean(mask, axis=0) > 0.05)[0]
         
         if len(rows) == 0 or len(cols) == 0:
             # Fallback: usar método mejorado de recorte
             img_cropped = auto_crop_borders_improved(img)
         else:
             img_cropped = img[rows[0]:rows[-1]+1, cols[0]:cols[-1]+1]
-            # Aplicar recorte mejorado por si quedan bordes
+            # Aplicar recorte mejorado por si quedan bordes (siempre aplicar para asegurar recorte completo)
             img_cropped = auto_crop_borders_improved(img_cropped)
         
         # === 3. Detección de bordes y cálculo de ángulo ===
