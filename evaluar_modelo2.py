@@ -115,8 +115,14 @@ def inferir_imagen(
             aplicar_preprocesamiento=False  # Imágenes ya preprocesadas
         )
         
+        # Convertir lista de patches a array numpy
+        if isinstance(patches, list):
+            patches_array = np.array(patches)
+        else:
+            patches_array = patches
+        
         # Extraer features
-        features_por_capa = extractor.extraer_features_patches(patches, batch_size=batch_size)
+        features_por_capa = extractor.extraer_features_patches(patches_array, batch_size=batch_size)
         
         # Calcular scores de Mahalanobis
         scores_por_capa = distribucion.calcular_scores_mahalanobis(features_por_capa)
