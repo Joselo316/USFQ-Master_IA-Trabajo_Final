@@ -25,13 +25,15 @@ from modelos.modelo4_fastflow.dataset import MDPDataset
 
 def get_train_loader(
     data_dir: Path,
-    batch_size: int = 32,
+    batch_size: int = 64,
     img_size: int = 256,
-    num_workers: int = 4
+    num_workers: int = None
 ) -> DataLoader:
     """
     Crea DataLoader para entrenamiento (solo imágenes normales).
+    Optimizado para velocidad.
     """
+    import os
     dataset = MDPDataset(
         data_dir=data_dir,
         split='train',
@@ -39,12 +41,18 @@ def get_train_loader(
         img_size=img_size
     )
     
+    # Optimizar num_workers automáticamente
+    if num_workers is None:
+        num_workers = min(8, os.cpu_count() or 1)
+    
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
-        pin_memory=True
+        pin_memory=True,
+        prefetch_factor=2 if num_workers > 0 else None,
+        persistent_workers=True if num_workers > 0 else False
     )
     
     return loader
@@ -53,13 +61,15 @@ def get_train_loader(
 def get_eval_loader(
     data_dir: Path,
     split: str = 'valid',
-    batch_size: int = 32,
+    batch_size: int = 64,
     img_size: int = 256,
-    num_workers: int = 4
+    num_workers: int = None
 ) -> DataLoader:
     """
     Crea DataLoader para evaluación (normal + defectuoso).
+    Optimizado para velocidad.
     """
+    import os
     dataset = MDPDataset(
         data_dir=data_dir,
         split=split,
@@ -67,12 +77,18 @@ def get_eval_loader(
         img_size=img_size
     )
     
+    # Optimizar num_workers automáticamente
+    if num_workers is None:
+        num_workers = min(8, os.cpu_count() or 1)
+    
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
-        pin_memory=True
+        pin_memory=True,
+        prefetch_factor=2 if num_workers > 0 else None,
+        persistent_workers=True if num_workers > 0 else False
     )
     
     return loader

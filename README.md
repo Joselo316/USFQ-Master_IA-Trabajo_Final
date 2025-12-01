@@ -828,10 +828,82 @@ python main.py --mode eval --model_path models/fastflow_resnet18_256.pt --save_s
 - `--batch_size`: Tamaño de batch (default: 16)
 - `--epochs`: Número de épocas (default: 50)
 - `--lr`: Learning rate (default: 1e-4)
-- `--flow_steps`: Número de bloques de flow (default: 4)
-- `--coupling_layers`: Número de coupling layers por bloque (default: 4)
+- `--flow_steps`: Número de bloques de flow (default: 4, reducir para más velocidad)
+- `--coupling_layers`: Número de coupling layers por bloque (default: 4, reducir para más velocidad)
+- `--mid_channels`: Canales intermedios en coupling layers (default: 512, reducir a 256 para más velocidad)
+- `--use_fewer_layers`: Usar solo layer3 y layer4 del backbone (más rápido, menos preciso)
+- `--use_amp`: Usar mixed precision training FP16 (default: True, acelera ~2x en GPU moderna)
+- `--no_amp`: Desactivar mixed precision
+- `--accumulation_steps`: Pasos de acumulación de gradientes (permite batch_size efectivo mayor, default: 1)
+- `--compile_model`: Compilar modelo con torch.compile (PyTorch 2.0+, acelera ~20-30%)
+- `--early_stopping`: Activar early stopping para detener entrenamiento si no hay mejora
+- `--patience`: Número de épocas sin mejora antes de detener (default: 10, solo con --early_stopping)
+- `--min_delta`: Mejora mínima relativa para considerar mejora significativa (default: 0.0001, solo con --early_stopping)
+- `--num_workers`: Número de workers para DataLoader (default: min(8, CPU_count), aumentar para más velocidad de carga de datos)
 - `--save_samples`: Guardar imágenes de ejemplo con mapas de anomalía
 - `--num_samples`: Número de imágenes de ejemplo (default: 10)
+
+### Optimizaciones para acelerar el entrenamiento
+
+**Opción 1: Configuración rápida (recomendada para pruebas)**
+```bash
+python main.py --mode train_eval \
+    --backbone resnet18 \
+    --flow_steps 2 \
+    --coupling_layers 2 \
+    --mid_channels 256 \
+    --use_fewer_layers \
+    --batch_size 32 \
+    --compile_model
+```
+
+**Opción 2: Configuración balanceada (velocidad/precisión)**
+```bash
+python main.py --mode train_eval \
+    --backbone resnet18 \
+    --flow_steps 3 \
+    --coupling_layers 3 \
+    --mid_channels 384 \
+    --batch_size 24 \
+    --use_amp \
+    --compile_model
+```
+
+**Opción 3: Configuración máxima velocidad**
+```bash
+python main.py --mode train_eval \
+    --backbone resnet18 \
+    --flow_steps 2 \
+    --coupling_layers 2 \
+    --mid_channels 256 \
+    --use_fewer_layers \
+    --batch_size 32 \
+    --accumulation_steps 2 \
+    --use_amp \
+    --compile_model
+```
+
+**Opción 4: Con early stopping (recomendado para entrenamientos largos)**
+```bash
+python main.py --mode train_eval \
+    --backbone resnet18 \
+    --epochs 100 \
+    --early_stopping \
+    --patience 15 \
+    --min_delta 0.0001 \
+    --use_amp \
+    --compile_model
+```
+
+**Consejos de optimización:**
+- **Aumentar `--num_workers`**: Más workers = carga de datos más rápida (recomendado: 4-16 según CPU). Si tienes muchos cores, prueba con 8-16.
+- **Reducir `flow_steps` y `coupling_layers`**: Menos bloques = más rápido, pero puede reducir precisión
+- **Reducir `mid_channels`**: De 512 a 256 o 384 reduce memoria y acelera
+- **Usar `--use_fewer_layers`**: Procesa solo 2 capas en lugar de 4, ~2x más rápido
+- **Aumentar `batch_size`**: Si tienes memoria GPU disponible, aumenta batch_size
+- **Usar `--accumulation_steps`**: Permite simular batch_size mayor sin usar más memoria
+- **Activar `--use_amp`**: Mixed precision (FP16) acelera ~2x en GPUs modernas (V100, A100, RTX series)
+- **Activar `--compile_model`**: torch.compile acelera ~20-30% (requiere PyTorch 2.0+)
 
 ### Salidas
 

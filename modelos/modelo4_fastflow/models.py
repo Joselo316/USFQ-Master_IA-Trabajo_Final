@@ -119,7 +119,8 @@ class FastFlow(nn.Module):
         input_size: int = 256,
         flow_steps: int = 4,
         coupling_layers: int = 4,
-        mid_channels: int = 512
+        mid_channels: int = 512,
+        use_fewer_layers: bool = False
     ):
         """
         Args:
@@ -129,6 +130,7 @@ class FastFlow(nn.Module):
             flow_steps: Número de bloques de flow
             coupling_layers: Número de coupling layers por bloque
             mid_channels: Canales intermedios en las redes de coupling
+            use_fewer_layers: Si True, usa solo layer3 y layer4 (más rápido, menos preciso)
         """
         super().__init__()
         
@@ -138,15 +140,23 @@ class FastFlow(nn.Module):
                 backbone = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
             else:
                 backbone = models.resnet18(weights=None)
-            self.feature_dims = [64, 128, 256, 512]  # Dimensiones de features por capa
-            self.backbone_layers = ['layer1', 'layer2', 'layer3', 'layer4']
+            if use_fewer_layers:
+                self.feature_dims = [256, 512]  # Solo layer3 y layer4
+                self.backbone_layers = ['layer3', 'layer4']
+            else:
+                self.feature_dims = [64, 128, 256, 512]  # Todas las capas
+                self.backbone_layers = ['layer1', 'layer2', 'layer3', 'layer4']
         elif backbone_name == 'resnet50':
             if pretrained:
                 backbone = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
             else:
                 backbone = models.resnet50(weights=None)
-            self.feature_dims = [256, 512, 1024, 2048]
-            self.backbone_layers = ['layer1', 'layer2', 'layer3', 'layer4']
+            if use_fewer_layers:
+                self.feature_dims = [1024, 2048]  # Solo layer3 y layer4
+                self.backbone_layers = ['layer3', 'layer4']
+            else:
+                self.feature_dims = [256, 512, 1024, 2048]  # Todas las capas
+                self.backbone_layers = ['layer1', 'layer2', 'layer3', 'layer4']
         else:
             raise ValueError(f"Backbone no soportado: {backbone_name}")
         
@@ -205,9 +215,12 @@ class FastFlow(nn.Module):
         x = self.backbone['relu'](x)
         x = self.backbone['maxpool'](x)
         
-        for layer_name in self.backbone_layers:
+        # Procesar todas las capas, pero solo guardar las que necesitamos
+        for i, layer_name in enumerate(['layer1', 'layer2', 'layer3', 'layer4']):
             x = self.backbone[layer_name](x)
-            features.append(x)
+            # Solo agregar si está en backbone_layers (puede ser un subconjunto)
+            if layer_name in self.backbone_layers:
+                features.append(x)
         
         return features
     

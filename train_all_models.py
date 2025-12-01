@@ -153,6 +153,31 @@ def entrenar_modelo4(args):
     if args.model4_coupling_layers:
         cmd.extend(["--coupling_layers", str(args.model4_coupling_layers)])
     
+    if args.model4_mid_channels:
+        cmd.extend(["--mid_channels", str(args.model4_mid_channels)])
+    
+    if args.model4_use_fewer_layers:
+        cmd.append("--use_fewer_layers")
+    
+    if args.model4_use_amp:
+        cmd.append("--use_amp")
+    else:
+        cmd.append("--no_amp")
+    
+    if args.model4_accumulation_steps and args.model4_accumulation_steps > 1:
+        cmd.extend(["--accumulation_steps", str(args.model4_accumulation_steps)])
+    
+    if args.model4_compile:
+        cmd.append("--compile_model")
+    
+    if args.model4_early_stopping:
+        cmd.append("--early_stopping")
+        cmd.extend(["--patience", str(args.model4_patience)])
+        cmd.extend(["--min_delta", str(args.model4_min_delta)])
+    
+    if args.model4_num_workers is not None:
+        cmd.extend(["--num_workers", str(args.model4_num_workers)])
+    
     if args.model4_output_dir:
         cmd.extend(["--output_dir", args.model4_output_dir])
     
@@ -406,6 +431,63 @@ Ejemplos de uso:
         type=int,
         default=4,
         help='Número de coupling layers por bloque para modelo 4 (default: 4)'
+    )
+    parser.add_argument(
+        '--model4_mid_channels',
+        type=int,
+        default=512,
+        help='Canales intermedios en coupling layers para modelo 4 (default: 512, reducir para más velocidad)'
+    )
+    parser.add_argument(
+        '--model4_use_fewer_layers',
+        action='store_true',
+        help='Usar solo layer3 y layer4 del backbone para modelo 4 (más rápido)'
+    )
+    parser.add_argument(
+        '--model4_use_amp',
+        action='store_true',
+        default=True,
+        help='Usar mixed precision (FP16) para modelo 4 (default: True)'
+    )
+    parser.add_argument(
+        '--model4_no_amp',
+        dest='model4_use_amp',
+        action='store_false',
+        help='Desactivar mixed precision para modelo 4'
+    )
+    parser.add_argument(
+        '--model4_accumulation_steps',
+        type=int,
+        default=1,
+        help='Pasos de acumulación de gradientes para modelo 4 (default: 1)'
+    )
+    parser.add_argument(
+        '--model4_compile',
+        action='store_true',
+        help='Compilar modelo 4 con torch.compile para aceleración'
+    )
+    parser.add_argument(
+        '--model4_early_stopping',
+        action='store_true',
+        help='Activar early stopping para modelo 4'
+    )
+    parser.add_argument(
+        '--model4_patience',
+        type=int,
+        default=10,
+        help='Paciencia para early stopping en modelo 4 (default: 10)'
+    )
+    parser.add_argument(
+        '--model4_min_delta',
+        type=float,
+        default=0.0001,
+        help='Mejora mínima relativa para early stopping en modelo 4 (default: 0.0001)'
+    )
+    parser.add_argument(
+        '--model4_num_workers',
+        type=int,
+        default=None,
+        help='Número de workers para DataLoader del modelo 4 (default: min(8, CPU_count), aumentar para más velocidad)'
     )
     parser.add_argument(
         '--model4_output_dir',
