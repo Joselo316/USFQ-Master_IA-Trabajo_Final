@@ -15,52 +15,94 @@ from typing import List, Optional
 
 
 def auto_crop_borders_improved(img: np.ndarray) -> np.ndarray:
-    """Recorta bordes negros de forma más agresiva"""
+    """Recorta bordes negros de forma más agresiva usando método adaptativo"""
     gray = img if len(img.shape) == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     h, w = gray.shape
     
-    # Método mejorado: Detectar bordes negros analizando intensidades desde los bordes hacia adentro
-    # Usar umbral más bajo para detectar bordes oscuros
-    black_threshold = 20
+    # Calcular estadísticas de la imagen para umbral adaptativo
+    img_mean = np.mean(gray)
+    img_std = np.std(gray)
+    
+    # Usar umbral adaptativo: si la imagen es oscura, usar umbral más bajo
+    # Si la imagen es clara, usar umbral más alto
+    if img_mean < 50:
+        black_threshold = max(5, img_mean * 0.3)  # Para imágenes oscuras
+    else:
+        black_threshold = max(10, img_mean * 0.15)  # Para imágenes claras
+    
+    # Método mejorado: Analizar intensidades y variaciones
+    # Buscar la primera fila/columna donde el contenido es significativamente diferente del borde
     
     # Analizar filas desde arriba hacia abajo
     top_crop = 0
-    for y in range(h):
-        row_mean = np.mean(gray[y, :])
-        if row_mean > black_threshold:
-            top_crop = y
+    for y in range(min(h, 100)):  # Limitar búsqueda a primeros 100 píxeles
+        row = gray[y, :]
+        row_mean = np.mean(row)
+        row_std = np.std(row)
+        # Detectar contenido: media alta O alta variación (textura)
+        if row_mean > black_threshold or row_std > 5:
+            top_crop = max(0, y - 1)  # Incluir un píxel antes por seguridad
             break
     
     # Analizar filas desde abajo hacia arriba
     bottom_crop = h
-    for y in range(h - 1, -1, -1):
-        row_mean = np.mean(gray[y, :])
-        if row_mean > black_threshold:
-            bottom_crop = y + 1
+    for y in range(h - 1, max(0, h - 100), -1):  # Limitar búsqueda a últimos 100 píxeles
+        row = gray[y, :]
+        row_mean = np.mean(row)
+        row_std = np.std(row)
+        if row_mean > black_threshold or row_std > 5:
+            bottom_crop = min(h, y + 2)  # Incluir un píxel después por seguridad
             break
     
     # Analizar columnas desde izquierda hacia derecha
     left_crop = 0
-    for x in range(w):
-        col_mean = np.mean(gray[:, x])
-        if col_mean > black_threshold:
-            left_crop = x
+    for x in range(min(w, 100)):  # Limitar búsqueda a primeros 100 píxeles
+        col = gray[:, x]
+        col_mean = np.mean(col)
+        col_std = np.std(col)
+        if col_mean > black_threshold or col_std > 5:
+            left_crop = max(0, x - 1)
             break
     
     # Analizar columnas desde derecha hacia izquierda
     right_crop = w
-    for x in range(w - 1, -1, -1):
-        col_mean = np.mean(gray[:, x])
-        if col_mean > black_threshold:
-            right_crop = x + 1
+    for x in range(w - 1, max(0, w - 100), -1):  # Limitar búsqueda a últimos 100 píxeles
+        col = gray[:, x]
+        col_mean = np.mean(col)
+        col_std = np.std(col)
+        if col_mean > black_threshold or col_std > 5:
+            right_crop = min(w, x + 2)
             break
     
-    # Validación final (más permisiva)
+    # Validación final
     if bottom_crop <= top_crop or right_crop <= left_crop:
         return img
-    # Reducir el umbral mínimo del 20% al 10% para permitir recortes más agresivos
-    if (bottom_crop - top_crop) < 0.1 * h or (right_crop - left_crop) < 0.1 * w:
+    
+    # Validación más permisiva: solo rechazar si el recorte es extremo (< 5% del tamaño original)
+    if (bottom_crop - top_crop) < 0.05 * h or (right_crop - left_crop) < 0.05 * w:
         return img
+    
+    # Asegurar que hay un recorte significativo (al menos 1 píxel en cada dirección)
+    if top_crop == 0 and bottom_crop == h and left_crop == 0 and right_crop == w:
+        # Si no se detectó ningún borde, intentar método alternativo más agresivo
+        # Usar percentiles para detectar bordes
+        row_means = np.mean(gray, axis=1)
+        col_means = np.mean(gray, axis=0)
+        
+        # Encontrar donde el contenido comienza (percentil 10 de las medias)
+        row_threshold = np.percentile(row_means, 10)
+        col_threshold = np.percentile(col_means, 10)
+        
+        top_idx = np.where(row_means > row_threshold * 1.5)[0]
+        bottom_idx = np.where(row_means > row_threshold * 1.5)[0]
+        left_idx = np.where(col_means > col_threshold * 1.5)[0]
+        right_idx = np.where(col_means > col_threshold * 1.5)[0]
+        
+        if len(top_idx) > 0 and len(bottom_idx) > 0 and len(left_idx) > 0 and len(right_idx) > 0:
+            top_crop = max(0, top_idx[0] - 1)
+            bottom_crop = min(h, bottom_idx[-1] + 2)
+            left_crop = max(0, left_idx[0] - 1)
+            right_crop = min(w, right_idx[-1] + 2)
     
     return img[top_crop:bottom_crop, left_crop:right_crop]
 
