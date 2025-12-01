@@ -6,9 +6,19 @@ Lee los CSV de train, test y valid, y copia las imágenes a carpetas 'normal' o 
 import argparse
 import csv
 import shutil
+import sys
+import cv2
+import numpy as np
 from pathlib import Path
 from typing import Dict, Set, Tuple
 from collections import defaultdict
+
+# Agregar rutas al path para importar preprocesamiento
+PROJECT_ROOT = Path(__file__).parent
+sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "preprocesamiento"))
+
+from preprocesamiento import cargar_y_preprocesar_3canales
 
 # Rutas
 PROJECT_ROOT = Path(__file__).parent
@@ -109,7 +119,9 @@ def procesar_carpeta(
     output_normal: Path,
     output_fallas: Path,
     estadisticas: Dict[str, int],
-    contador_duplicados: Dict[str, int]
+    contador_duplicados: Dict[str, int],
+    aplicar_preprocesamiento: bool = True,
+    tamaño_objetivo: Tuple[int, int] = (256, 256)
 ) -> Tuple[int, int]:
     """
     Procesa una carpeta (train/test/valid) leyendo su CSV y copiando imágenes.
@@ -171,8 +183,14 @@ def procesar_carpeta(
             normal_count += 1
             estadisticas['normal_total'] += 1
         
-        # Copiar imagen
-        if copiar_imagen(imagen_path, destino, contador_duplicados):
+        # Procesar y guardar imagen (con preprocesamiento y redimensionamiento)
+        if procesar_y_guardar_imagen(
+            imagen_path, 
+            destino, 
+            contador_duplicados,
+            aplicar_preprocesamiento=aplicar_preprocesamiento,
+            tamaño_objetivo=tamaño_objetivo
+        ):
             estadisticas[f'{nombre_carpeta}_procesadas'] += 1
         else:
             estadisticas[f'{nombre_carpeta}_errores'] += 1
@@ -184,7 +202,13 @@ def procesar_carpeta(
         for filename in imagenes_sin_csv:
             imagen_path = carpeta / filename
             destino = output_normal / filename
-            if copiar_imagen(imagen_path, destino, contador_duplicados):
+            if procesar_y_guardar_imagen(
+                imagen_path, 
+                destino, 
+                contador_duplicados,
+                aplicar_preprocesamiento=aplicar_preprocesamiento,
+                tamaño_objetivo=tamaño_objetivo
+            ):
                 normal_count += 1
                 sin_etiqueta += 1
                 estadisticas['normal_total'] += 1
@@ -242,6 +266,17 @@ Si alguna clase es 1, la imagen tiene fallas.
         action='store_true',
         help='Saltar procesamiento de carpeta valid'
     )
+    parser.add_argument(
+        '--no_preprocesamiento',
+        action='store_true',
+        help='NO aplicar preprocesamiento (solo redimensionar a 256x256)'
+    )
+    parser.add_argument(
+        '--img_size',
+        type=int,
+        default=256,
+        help='Tamaño de imagen objetivo (cuadrado) (default: 256)'
+    )
     
     args = parser.parse_args()
     
@@ -260,6 +295,10 @@ Si alguna clase es 1, la imagen tiene fallas.
     output_normal.mkdir(parents=True, exist_ok=True)
     output_fallas.mkdir(parents=True, exist_ok=True)
     
+    # Configurar tamaño objetivo
+    tamaño_objetivo = (args.img_size, args.img_size)
+    aplicar_preprocesamiento = not args.no_preprocesamiento
+    
     print("="*70)
     print("ETIQUETADO DE IMÁGENES")
     print("="*70)
@@ -267,6 +306,8 @@ Si alguna clase es 1, la imagen tiene fallas.
     print(f"Directorio de salida: {output_dir}")
     print(f"  Normal: {output_normal}")
     print(f"  Fallas: {output_fallas}")
+    print(f"Preprocesamiento: {'Sí (3 canales)' if aplicar_preprocesamiento else 'No (solo redimensionar)'}")
+    print(f"Tamaño objetivo: {tamaño_objetivo[0]}x{tamaño_objetivo[1]}")
     print("="*70)
     
     # Estadísticas
@@ -306,7 +347,9 @@ Si alguna clase es 1, la imagen tiene fallas.
             output_normal,
             output_fallas,
             estadisticas,
-            contador_duplicados
+            contador_duplicados,
+            aplicar_preprocesamiento=aplicar_preprocesamiento,
+            tamaño_objetivo=tamaño_objetivo
         )
         total_normal += normal
         total_fallas += fallas
