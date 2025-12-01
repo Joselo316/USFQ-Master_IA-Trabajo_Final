@@ -207,10 +207,16 @@ def main():
     else:
         print(f"  Imagen redimensionada a: {img_size}x{img_size}")
     
+    # Convertir lista de patches a array numpy
+    if isinstance(patches, list):
+        patches_array = np.array(patches)
+    else:
+        patches_array = patches
+    
     # Extraer features
     print("  Extrayendo features...")
     features_por_capa = extractor.extraer_features_patches(
-        patches, batch_size=batch_size
+        patches_array, batch_size=batch_size
     )
     
     # Calcular scores
