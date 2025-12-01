@@ -152,9 +152,9 @@ def cargar_modelo_y_extractor(modelo_path: Path, backbone: str) -> Tuple[Distrib
     """
     Carga el modelo (distribución) y el extractor de features.
     """
-    # Cargar distribución
-    with open(modelo_path, 'rb') as f:
-        distribucion = pickle.load(f)
+    # Cargar distribución usando el método cargar() de DistribucionFeatures
+    distribucion = DistribucionFeatures()
+    distribucion.cargar(modelo_path)
     
     # Inicializar extractor
     extractor = FeatureExtractor(modelo_base=backbone)

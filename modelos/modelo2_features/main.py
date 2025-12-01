@@ -177,10 +177,10 @@ def main():
     print(f"Preprocesamiento: {'Sí' if args.aplicar_preprocesamiento else 'No'}")
     print("="*70)
     
-    # Cargar modelo
+    # Cargar modelo usando el método cargar() de DistribucionFeatures
     print(f"\nCargando modelo desde {args.model}...")
-    with open(args.model, 'rb') as f:
-        distribucion = pickle.load(f)
+    distribucion = DistribucionFeatures()
+    distribucion.cargar(Path(args.model))
     print("Modelo cargado correctamente.")
     
     # Inicializar extractor de features
