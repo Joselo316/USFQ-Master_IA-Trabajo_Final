@@ -15,13 +15,12 @@ from collections import defaultdict
 
 # Agregar rutas al path para importar preprocesamiento
 PROJECT_ROOT = Path(__file__).parent
-sys.path.insert(0, str(PROJECT_ROOT))
-sys.path.insert(0, str(PROJECT_ROOT / "preprocesamiento"))
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from preprocesamiento import cargar_y_preprocesar_3canales, auto_crop_borders_improved
 
-# Rutas
-PROJECT_ROOT = Path(__file__).parent
+# Rutas (PROJECT_ROOT ya está definido arriba)
 EVALUACION_DIR = PROJECT_ROOT / "evaluacion"
 OUTPUT_DIR = PROJECT_ROOT / "etiquetadas"
 
