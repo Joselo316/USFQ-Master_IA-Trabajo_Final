@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from preprocesamiento import cargar_y_preprocesar_3canales, auto_crop_borders_improved
+from preprocesamiento import cargar_y_preprocesar_3canales, auto_crop_borders_improved, preprocesar_imagen_3canales
 from math import degrees
 
 # Rutas (PROJECT_ROOT ya está definido arriba)
@@ -196,51 +196,34 @@ def procesar_y_guardar_imagen(
         destino = parent / nuevo_nombre
     
     try:
-        # Cargar imagen original
-        img_original = cv2.imread(str(origen), cv2.IMREAD_COLOR)
-        if img_original is None:
-            # Intentar en escala de grises
-            img_original = cv2.imread(str(origen), cv2.IMREAD_GRAYSCALE)
-            if img_original is None:
+        # === 1. Cargar imagen original en escala de grises ===
+        img_gray = cv2.imread(str(origen), cv2.IMREAD_GRAYSCALE)
+        if img_gray is None:
+            # Si no se puede cargar en gris, intentar en color y convertir
+            img_color = cv2.imread(str(origen), cv2.IMREAD_COLOR)
+            if img_color is None:
                 return False
-            # Convertir a 3 canales
-            img_original = cv2.cvtColor(img_original, cv2.COLOR_GRAY2BGR)
+            img_gray = cv2.cvtColor(img_color, cv2.COLOR_BGR2GRAY)
         
-        # === 1. Eliminar bordes negros ===
+        # === 2. Eliminar bordes negros (en escala de grises, ANTES de convertir a 3 canales) ===
         if eliminar_bordes_imagen:
-            img_sin_bordes = eliminar_bordes(img_original)
+            img_sin_bordes = eliminar_bordes(img_gray)
         else:
-            img_sin_bordes = img_original
+            img_sin_bordes = img_gray
         
-        # === 2. Aplicar preprocesamiento y redimensionamiento ===
+        # === 3. Redimensionar si es necesario ===
+        if tamaño_objetivo is not None:
+            alto, ancho = tamaño_objetivo
+            img_sin_bordes = cv2.resize(img_sin_bordes, (ancho, alto), interpolation=cv2.INTER_LINEAR)
+        
+        # === 4. Aplicar preprocesamiento a 3 canales ===
         if aplicar_preprocesamiento:
-            # Convertir a escala de grises para el preprocesamiento
-            img_gray = cv2.cvtColor(img_sin_bordes, cv2.COLOR_BGR2GRAY)
-            
-            # Guardar temporalmente para usar cargar_y_preprocesar_3canales
-            # (que espera una ruta de archivo)
-            import tempfile
-            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-                tmp_path = tmp.name
-                cv2.imwrite(tmp_path, img_gray)
-            
-            try:
-                # cargar_y_preprocesar_3canales aplica preprocesamiento y redimensiona
-                img_procesada = cargar_y_preprocesar_3canales(
-                    tmp_path, 
-                    tamaño_objetivo=tamaño_objetivo
-                )
-            finally:
-                # Eliminar archivo temporal
-                import os
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            
+            # preprocesar_imagen_3canales convierte la imagen en escala de grises a 3 canales
+            img_procesada = preprocesar_imagen_3canales(img_sin_bordes)
             # La imagen ya está en formato uint8 [0, 255] y 3 canales
         else:
-            # Solo redimensionar sin preprocesamiento
-            alto, ancho = tamaño_objetivo
-            img_procesada = cv2.resize(img_sin_bordes, (ancho, alto), interpolation=cv2.INTER_LINEAR)
+            # Solo convertir a 3 canales sin preprocesamiento
+            img_procesada = cv2.cvtColor(img_sin_bordes, cv2.COLOR_GRAY2BGR)
         
         # Guardar imagen procesada
         cv2.imwrite(str(destino), img_procesada)
