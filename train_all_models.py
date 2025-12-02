@@ -112,9 +112,8 @@ def entrenar_modelo1(args):
     print("="*70)
     
     # Determinar ruta del dataset según si se reescala o no
-    # Si use_segmentation=True, NO se reescala. Si use_segmentation=False, SÍ se reescala.
-    # Pero si args.redimensionar está activo, forzar uso de dataset reescalado
-    usar_reescalado = args.redimensionar or (not args.use_segmentation)
+    # Por defecto NO reescalar. Solo reescalar si se especifica explícitamente --redimensionar
+    usar_reescalado = args.redimensionar
     
     if args.data_dir is None:
         data_dir = config.obtener_ruta_dataset(redimensionar=usar_reescalado)
@@ -178,9 +177,8 @@ def entrenar_modelo2(args):
         return False
     
     # Determinar ruta del dataset según si se reescala o no
-    # Si use_segmentation=True, NO se reescala. Si use_segmentation=False, SÍ se reescala.
-    # Pero si args.redimensionar está activo, forzar uso de dataset reescalado
-    usar_reescalado = args.redimensionar or (not args.use_segmentation)
+    # Por defecto NO reescalar. Solo reescalar si se especifica explícitamente --redimensionar
+    usar_reescalado = args.redimensionar
     
     if args.data_dir is None:
         data_dir = config.obtener_ruta_dataset(redimensionar=usar_reescalado)

@@ -42,6 +42,28 @@ Este documento aclara qué modelos base se utilizan en cada uno de los cinco mod
 
 **Respuesta directa**: Se usa **Vision Transformer (ViT)** preentrenado, NO ResNet. El modelo base NO se entrena.
 
+## Modelo 4: FastFlow
+
+- **Backbone preentrenado**: ResNet18 o ResNet50 preentrenado en ImageNet
+  - **ResNet18**: Opción por defecto
+  - **ResNet50**: Opción disponible
+- **Funcionamiento**: Extrae features de múltiples escalas y aplica normalizing flows
+- **Entrenamiento**: Se entrena el modelo completo (backbone + flows) con imágenes normales
+
+**Respuesta directa**: Por defecto se usa **ResNet18**. El backbone NO se entrena desde cero, pero se hace fine-tuning junto con los flows.
+
+## Modelo 5: STPM
+
+- **Teacher Network**: CNN preentrenada en ImageNet
+  - **ResNet18**: Opción por defecto
+  - **ResNet50**: Opción disponible
+  - **WideResNet50-2**: Opción disponible
+- **Student Network**: Misma arquitectura pero inicializada aleatoriamente
+- **Funcionamiento**: Student aprende a imitar features del Teacher
+- **Entrenamiento**: Solo se entrena el Student network con imágenes normales
+
+**Respuesta directa**: Por defecto se usa **ResNet18**. El Teacher NO se entrena (está congelado), solo se entrena el Student.
+
 ## Resumen
 
 | Modelo | Modelo Base Preentrenado | ¿Se Entrena? | Por Defecto |
@@ -49,14 +71,18 @@ Este documento aclara qué modelos base se utilizan en cada uno de los cinco mod
 | Modelo 1 (Original) | Ninguno | Sí (todo desde cero) | Sí |
 | Modelo 1 (Transfer) | ResNet18/34/50 | Solo decoder | ResNet18 (si se activa) |
 | Modelo 2 | WideResNet50-2 | No (solo distribución) | WideResNet50-2 |
-| Modelo 3 | ViT-base-patch16-224 | No (solo k-NN) | ViT-base-patch16-224 |
+| Modelo 3 | ViT-base-patch16-224 | No (solo clasificador) | ViT-base-patch16-224 |
+| Modelo 4 | ResNet18/50 | Sí (backbone + flows) | ResNet18 |
+| Modelo 5 | ResNet18/50/WideResNet50-2 | Solo Student (Teacher congelado) | ResNet18 |
 
 ## Nota Importante
 
-**Ningún modelo base se entrena desde cero en este proyecto**. Todos los modelos base (ResNet, WideResNet, ViT) son preentrenados en ImageNet y se usan como extractores de features. Solo se entrenan:
+**Los modelos base (ResNet, WideResNet, ViT) son preentrenados en ImageNet**. El entrenamiento adicional varía según el modelo:
 - Modelo 1: El autoencoder completo (o solo el decoder si usas transfer learning)
-- Modelo 2: La distribución estadística de features normales
-- Modelo 3: El clasificador k-NN con features normales
+- Modelo 2: La distribución estadística de features normales (NO entrena el backbone)
+- Modelo 3: El clasificador de anomalías con features normales (NO entrena el ViT)
+- Modelo 4: El modelo completo incluyendo backbone y flows (fine-tuning del backbone)
+- Modelo 5: Solo el Student network (Teacher está congelado)
 
 
 

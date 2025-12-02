@@ -119,17 +119,31 @@ class MDPDataset(Dataset):
         img_path = self.image_paths[idx]
         label = self.labels[idx]
         
-        # Cargar imagen en escala de grises
-        img_gray = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
-        if img_gray is None:
-            raise ValueError(f"No se pudo cargar la imagen: {img_path}")
+        # Intentar cargar como imagen a color (ya preprocesada, 3 canales)
+        img_3ch = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
         
-        # Redimensionar si es necesario
-        if self.img_size is not None:
-            img_gray = cv2.resize(img_gray, (self.img_size, self.img_size), interpolation=cv2.INTER_LINEAR)
-        
-        # Aplicar preprocesamiento de 3 canales
-        img_3ch = preprocesar_imagen_3canales(img_gray)  # (H, W, 3) uint8
+        if img_3ch is None:
+            # Si falla, intentar como escala de grises y aplicar preprocesamiento
+            img_gray = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
+            if img_gray is None:
+                raise ValueError(f"No se pudo cargar la imagen: {img_path}")
+            
+            # Redimensionar si es necesario
+            if self.img_size is not None:
+                img_gray = cv2.resize(img_gray, (self.img_size, self.img_size), interpolation=cv2.INTER_LINEAR)
+            
+            # Aplicar preprocesamiento de 3 canales
+            img_3ch = preprocesar_imagen_3canales(img_gray)  # (H, W, 3) uint8
+        else:
+            # Imagen ya preprocesada (3 canales), solo redimensionar si es necesario
+            # Convertir BGR a RGB
+            img_3ch = cv2.cvtColor(img_3ch, cv2.COLOR_BGR2RGB)
+            
+            # Redimensionar si es necesario
+            if self.img_size is not None:
+                h, w = img_3ch.shape[:2]
+                if h != self.img_size or w != self.img_size:
+                    img_3ch = cv2.resize(img_3ch, (self.img_size, self.img_size), interpolation=cv2.INTER_LINEAR)
         
         # Convertir a tensor y normalizar a [0, 1]
         img_tensor = torch.from_numpy(img_3ch).float() / 255.0  # (H, W, 3)

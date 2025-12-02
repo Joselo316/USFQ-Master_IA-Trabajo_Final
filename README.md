@@ -11,10 +11,12 @@ TesisMDP/
 ├── preprocesar_dataset.py       # Script para preprocesar todo el dataset
 ├── validacion.py                 # Script para procesar imágenes de validación
 ├── train_all_models.py          # Script maestro para entrenar todos los modelos
-├── evaluar_todos_modelos.py     # Script maestro para evaluar todos los modelos
+├── evaluar_all_models.py        # Script maestro para evaluar todos los modelos
 ├── evaluar_modelo1.py           # Script de evaluación del modelo 1
 ├── evaluar_modelo2.py           # Script de evaluación del modelo 2
 ├── evaluar_modelo3.py           # Script de evaluación del modelo 3
+├── evaluar_modelo4.py           # Script de evaluación del modelo 4
+├── evaluar_modelo5.py           # Script de evaluación del modelo 5
 ├── requirements.txt             # Dependencias del proyecto
 ├── preprocesamiento/
 │   ├── preprocesamiento.py      # Preprocesamiento común de 3 canales
@@ -1021,13 +1023,19 @@ El script:
 
 ```bash
 # Evaluar todos los modelos (usa dataset sin reescalar por defecto)
-python evaluar_todos_modelos.py --all
+python evaluar_all_models.py --all
 
 # Evaluar con dataset reescalado
-python evaluar_todos_modelos.py --all --redimensionar
+python evaluar_all_models.py --all --redimensionar
 
 # Evaluar modelos específicos
-python evaluar_todos_modelos.py --modelo 1 --modelo 2
+python evaluar_all_models.py --modelo 1 --modelo 2
+
+# Evaluar solo modelo 4
+python evaluar_all_models.py --modelo 4
+
+# Evaluar solo modelo 5
+python evaluar_all_models.py --modelo 5
 ```
 
 **Resultados**:

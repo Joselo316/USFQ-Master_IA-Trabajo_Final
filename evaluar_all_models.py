@@ -1,6 +1,7 @@
 """
 Script maestro para evaluar todos los modelos o modelos específicos.
 Permite evaluar los modelos 1, 2, 3, 4 y 5 usando las imágenes procesadas de validación.
+Similar a train_all_models.py pero para evaluación.
 """
 
 import argparse
@@ -15,6 +16,8 @@ import config
 EVALUAR_MODELO1 = PROJECT_ROOT / "evaluar_modelo1.py"
 EVALUAR_MODELO2 = PROJECT_ROOT / "evaluar_modelo2.py"
 EVALUAR_MODELO3 = PROJECT_ROOT / "evaluar_modelo3.py"
+EVALUAR_MODELO4 = PROJECT_ROOT / "evaluar_modelo4.py"
+EVALUAR_MODELO5 = PROJECT_ROOT / "evaluar_modelo5.py"
 
 # Directorio base para evaluaciones
 EVALUACIONES_DIR = PROJECT_ROOT / "evaluaciones"
@@ -201,14 +204,150 @@ def evaluar_modelo3(args):
     if args.batch_size:
         cmd.extend(["--batch_size", str(args.batch_size)])
     
-    if args.percentil:
-        cmd.extend(["--percentil", str(args.percentil)])
+    if args.umbral_percentil:
+        cmd.extend(["--umbral_percentil", str(args.umbral_percentil)])
     
     if args.model_name:
         cmd.extend(["--model_name", args.model_name])
     
     if args.progress_interval:
         cmd.extend(["--progress_interval", str(args.progress_interval)])
+    
+    if args.aplicar_preprocesamiento:
+        cmd.append("--aplicar_preprocesamiento")
+    
+    if args.redimensionar:
+        cmd.append("--redimensionar")
+    
+    print(f"Comando: {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=PROJECT_ROOT)
+    return result.returncode == 0
+
+
+def evaluar_modelo4(args):
+    """Evalúa el modelo 4: FastFlow"""
+    print("\n" + "="*70)
+    print("EVALUANDO MODELO 4: FASTFLOW")
+    print("="*70)
+    
+    if not EVALUAR_MODELO4.exists():
+        print(f"ERROR: No se encuentra el script de evaluación: {EVALUAR_MODELO4}")
+        return False
+    
+    # Determinar ruta de validación según si se reescala o no
+    if args.etiquetadas_dir:
+        etiquetadas_dir = args.etiquetadas_dir
+    else:
+        etiquetadas_dir = config.obtener_ruta_validacion(redimensionar=args.redimensionar)
+    
+    # Determinar directorio de salida
+    if args.output_dir:
+        output_dir = args.output_dir
+    else:
+        output_dir = str(EVALUACIONES_DIR / "modelo4")
+        if args.redimensionar:
+            output_dir = str(EVALUACIONES_DIR / "modelo4_256")
+    
+    # Determinar directorio de modelos según si se reescala o no
+    if args.modelos_dir:
+        modelos_dir = args.modelos_dir
+    else:
+        base_models_dir = PROJECT_ROOT / "modelos" / "modelo4_fastflow"
+        if args.redimensionar:
+            modelos_dir = str(base_models_dir / "models_256")
+        else:
+            modelos_dir = str(base_models_dir / "models")
+    
+    cmd = [sys.executable, str(EVALUAR_MODELO4)]
+    cmd.extend(["--etiquetadas_dir", etiquetadas_dir])
+    cmd.extend(["--modelos_dir", modelos_dir])
+    cmd.extend(["--output_dir", output_dir])
+    
+    if args.model4_backbone:
+        cmd.extend(["--backbone", args.model4_backbone])
+    
+    if args.img_size:
+        cmd.extend(["--img_size", str(args.img_size)])
+    
+    if args.batch_size:
+        cmd.extend(["--batch_size", str(args.batch_size)])
+    
+    if args.progress_interval:
+        cmd.extend(["--progress_interval", str(args.progress_interval)])
+    
+    if args.umbral_percentil:
+        cmd.extend(["--umbral_percentil", str(args.umbral_percentil)])
+    
+    if args.aplicar_preprocesamiento:
+        cmd.append("--aplicar_preprocesamiento")
+    
+    if args.redimensionar:
+        cmd.append("--redimensionar")
+    
+    print(f"Comando: {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=PROJECT_ROOT)
+    return result.returncode == 0
+
+
+def evaluar_modelo5(args):
+    """Evalúa el modelo 5: STPM"""
+    print("\n" + "="*70)
+    print("EVALUANDO MODELO 5: STPM")
+    print("="*70)
+    
+    if not EVALUAR_MODELO5.exists():
+        print(f"ERROR: No se encuentra el script de evaluación: {EVALUAR_MODELO5}")
+        return False
+    
+    # Determinar ruta de validación según si se reescala o no
+    if args.etiquetadas_dir:
+        etiquetadas_dir = args.etiquetadas_dir
+    else:
+        etiquetadas_dir = config.obtener_ruta_validacion(redimensionar=args.redimensionar)
+    
+    # Determinar directorio de salida
+    if args.output_dir:
+        output_dir = args.output_dir
+    else:
+        output_dir = str(EVALUACIONES_DIR / "modelo5")
+        if args.redimensionar:
+            output_dir = str(EVALUACIONES_DIR / "modelo5_256")
+    
+    # Determinar directorio de modelos según si se reescala o no
+    if args.modelos_dir:
+        modelos_dir = args.modelos_dir
+    else:
+        base_models_dir = PROJECT_ROOT / "modelos" / "modelo5_stpm"
+        if args.redimensionar:
+            modelos_dir = str(base_models_dir / "models_256")
+        else:
+            modelos_dir = str(base_models_dir / "models")
+    
+    cmd = [sys.executable, str(EVALUAR_MODELO5)]
+    cmd.extend(["--etiquetadas_dir", etiquetadas_dir])
+    cmd.extend(["--modelos_dir", modelos_dir])
+    cmd.extend(["--output_dir", output_dir])
+    
+    if args.model5_backbone:
+        cmd.extend(["--backbone", args.model5_backbone])
+    
+    if args.img_size:
+        cmd.extend(["--img_size", str(args.img_size)])
+    
+    if args.batch_size:
+        cmd.extend(["--batch_size", str(args.batch_size)])
+    
+    if args.progress_interval:
+        cmd.extend(["--progress_interval", str(args.progress_interval)])
+    
+    if args.umbral_percentil:
+        cmd.extend(["--umbral_percentil", str(args.umbral_percentil)])
+    
+    if args.aplicar_preprocesamiento:
+        cmd.append("--aplicar_preprocesamiento")
+    
+    if args.redimensionar:
+        cmd.append("--redimensionar")
     
     print(f"Comando: {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=PROJECT_ROOT)
@@ -225,16 +364,19 @@ Este script evalúa los modelos 1, 2, 3, 4 y 5 usando las imágenes procesadas d
 
 Ejemplos:
   # Evaluar todos los modelos
-  python evaluar_todos_modelos.py --all
+  python evaluar_all_models.py --all
 
   # Evaluar solo modelo 1
-  python evaluar_todos_modelos.py --modelo 1
+  python evaluar_all_models.py --modelo 1
 
   # Evaluar modelos 1 y 2
-  python evaluar_todos_modelos.py --modelo 1 --modelo 2
+  python evaluar_all_models.py --modelo 1 --modelo 2
 
   # Evaluar con directorio personalizado
-  python evaluar_todos_modelos.py --all --etiquetadas_dir "ruta/a/validacion"
+  python evaluar_all_models.py --all --etiquetadas_dir "ruta/a/validacion"
+  
+  # Evaluar con dataset reescalado
+  python evaluar_all_models.py --all --redimensionar
         """
     )
     
@@ -362,6 +504,32 @@ Ejemplos:
         help='Nombre del modelo ViT preentrenado (modelo 3, default: google/vit-base-patch16-224)'
     )
     
+    # Opciones específicas del modelo 4
+    parser.add_argument(
+        '--model4_backbone',
+        type=str,
+        default='resnet18',
+        choices=['resnet18', 'resnet50'],
+        help='Backbone para modelo 4 (default: resnet18)'
+    )
+    
+    # Opciones específicas del modelo 5
+    parser.add_argument(
+        '--model5_backbone',
+        type=str,
+        default='resnet18',
+        choices=['resnet18', 'resnet50', 'wide_resnet50_2'],
+        help='Backbone para modelo 5 (default: resnet18)'
+    )
+    
+    # Opciones comunes adicionales
+    parser.add_argument(
+        '--umbral_percentil',
+        type=float,
+        default=95.0,
+        help='Percentil para calcular umbral adaptativo (default: 95.0)'
+    )
+    
     # Opciones para directorios de modelos (si se quiere especificar)
     parser.add_argument(
         '--modelos_dir',
@@ -417,6 +585,12 @@ Ejemplos:
     
     if 3 in modelos_a_evaluar:
         resultados[3] = evaluar_modelo3(args)
+    
+    if 4 in modelos_a_evaluar:
+        resultados[4] = evaluar_modelo4(args)
+    
+    if 5 in modelos_a_evaluar:
+        resultados[5] = evaluar_modelo5(args)
     
     # Resumen final
     print("\n" + "="*70)
