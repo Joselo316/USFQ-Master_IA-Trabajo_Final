@@ -835,18 +835,18 @@ python main.py --image "../../dataset/imagen.png" --model "models/distribucion_f
 cd ../modelo3_transformer
 python main.py --imagen "../../dataset/imagen.png" --modelo "models/vit_knn_k5_vit-base-patch16-224.pkl"
 
-# Modelo 4 (FastFlow) - Evaluación sobre dataset completo
+# Modelo 4 (FastFlow)
 cd ../modelo4_fastflow
-python main.py --mode eval --model_path "models/fastflow_resnet18_256.pt" --save_samples
+python main.py --mode eval --model_path "models/fastflow_resnet18_256.pt" --data_dir "../../dataset/imagen.png" --save_samples
 
-# Modelo 5 (STPM) - Evaluación sobre dataset completo
+# Modelo 5 (STPM)
 cd ../modelo5_stpm
-python main.py --mode eval --model_path "models/stpm_resnet18_256.pt" --save_samples
+python main.py --mode eval --model_path "models/stpm_resnet18_256.pt" --data_dir "../../dataset/imagen.png" --save_samples
 ```
 
 Los resultados se guardarán en las respectivas carpetas `outputs/` de cada modelo.
 
-**Nota:** Los modelos 4 y 5 pueden evaluar sobre el dataset completo o sobre imágenes individuales según el modo de ejecución.
+**Nota:** Los modelos 4 y 5 pueden evaluar sobre el dataset completo o sobre imágenes individuales según el modo de ejecución. Para inferencia individual, también puedes usar el script `inferir_todas_imagenes.py` con `--modelo 4` o `--modelo 5`.
 
 ## Modelo 4: FastFlow
 
