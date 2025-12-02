@@ -202,3 +202,4 @@ class AutoencoderTransferLearning(nn.Module):
         self.freeze_encoder = True
 
 
+

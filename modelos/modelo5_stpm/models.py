@@ -202,3 +202,4 @@ class STPM(nn.Module):
         
         return total_loss
 
+

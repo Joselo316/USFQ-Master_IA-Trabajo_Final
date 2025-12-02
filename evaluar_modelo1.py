@@ -33,15 +33,20 @@ from modelos.modelo1_autoencoder.model_autoencoder_transfer import AutoencoderTr
 from preprocesamiento import preprocesar_imagen_3canales
 
 # Rutas
+# Usar ruta de validación desde config si está disponible, sino usar etiquetadas como fallback
 ETIQUETADAS_DIR = PROJECT_ROOT / "etiquetadas"
 MODELOS_DIR = PROJECT_ROOT / "modelos" / "modelo1_autoencoder" / "models"
-OUTPUT_DIR = PROJECT_ROOT / "evaluaciones_modelo1"
+OUTPUT_DIR = PROJECT_ROOT / "evaluaciones" / "modelo1"
 
 
-def detectar_anomalia(error_map: np.ndarray) -> Tuple[bool, Dict[str, float]]:
+def detectar_anomalia(error_map: np.ndarray, umbral_global: float = None) -> Tuple[bool, Dict[str, float]]:
     """
     Detecta si hay anomalía basándose en el mapa de error.
-    Usa el mismo criterio que main.py
+    Usa un umbral global (si se proporciona) o calcula estadísticas básicas.
+    
+    Args:
+        error_map: Mapa de error de reconstrucción
+        umbral_global: Umbral global para error_sum (si None, solo retorna estadísticas)
     
     Returns:
         (is_anomaly, estadisticas)
@@ -50,18 +55,30 @@ def detectar_anomalia(error_map: np.ndarray) -> Tuple[bool, Dict[str, float]]:
     error_std = error_map.std()
     error_max = error_map.max()
     error_min = error_map.min()
+    error_sum = error_map.sum()
+    error_median = np.median(error_map)
     
-    # Mismo criterio que main.py
-    condicion1 = error_max > (error_mean + error_std)
-    condicion2 = (error_mean - error_std) > error_min
-    is_anomaly = condicion1 or condicion2
+    # Calcular percentiles
+    error_percentil_95 = np.percentile(error_map, 95)
+    error_percentil_99 = np.percentile(error_map, 99)
+    
+    # Si hay umbral global, usarlo para clasificar
+    if umbral_global is not None:
+        is_anomaly = error_sum > umbral_global
+    else:
+        # Sin umbral global, retornar None (se calculará después)
+        is_anomaly = None
     
     estadisticas = {
         'error_mean': float(error_mean),
+        'error_median': float(error_median),
         'error_std': float(error_std),
         'error_max': float(error_max),
         'error_min': float(error_min),
-        'error_sum': float(error_map.sum())
+        'error_sum': float(error_sum),
+        'error_percentil_95': float(error_percentil_95),
+        'error_percentil_99': float(error_percentil_99),
+        'umbral_global': float(umbral_global) if umbral_global is not None else None
     }
     
     return is_anomaly, estadisticas
@@ -74,10 +91,16 @@ def inferir_imagen(
     img_size: int = 256,
     usar_segmentacion: bool = False,
     patch_size: int = 256,
-    overlap_ratio: float = 0.3
+    overlap_ratio: float = 0.3,
+    umbral_global: float = None,
+    aplicar_preprocesamiento: bool = False
 ) -> Tuple[bool, Dict[str, float], float]:
     """
     Realiza inferencia en una imagen y retorna la predicción y estadísticas.
+    
+    Args:
+        aplicar_preprocesamiento: Si False, asume que la imagen ya está preprocesada (3 canales RGB).
+                                  Si True, aplica preprocesamiento desde escala de grises.
     
     Returns:
         (is_anomaly, estadisticas, tiempo_inferencia)
@@ -85,18 +108,32 @@ def inferir_imagen(
     inicio = time.time()
     
     try:
-        # Cargar imagen en escala de grises
-        img_original = cv2.imread(str(imagen_path), cv2.IMREAD_GRAYSCALE)
-        if img_original is None:
-            raise ValueError(f"No se pudo cargar: {imagen_path}")
-        
-        # Redimensionar imagen
-        img_resized = cv2.resize(img_original, (img_size, img_size), interpolation=cv2.INTER_LINEAR)
-        
-        # Aplicar preprocesamiento de 3 canales (igual que main.py)
-        # Esto aplica: normalización, filtro homomórfico, corrección de fondo,
-        # operaciones morfológicas y unsharp mask
-        img_3canales = preprocesar_imagen_3canales(img_resized)
+        if aplicar_preprocesamiento:
+            # Cargar imagen en escala de grises y aplicar preprocesamiento
+            img_original = cv2.imread(str(imagen_path), cv2.IMREAD_GRAYSCALE)
+            if img_original is None:
+                raise ValueError(f"No se pudo cargar: {imagen_path}")
+            
+            # Redimensionar imagen
+            img_resized = cv2.resize(img_original, (img_size, img_size), interpolation=cv2.INTER_LINEAR)
+            
+            # Aplicar preprocesamiento de 3 canales
+            # Esto aplica: normalización, filtro homomórfico, corrección de fondo,
+            # operaciones morfológicas y unsharp mask
+            img_3canales = preprocesar_imagen_3canales(img_resized)
+        else:
+            # Cargar imagen ya preprocesada (3 canales RGB)
+            img_3canales = cv2.imread(str(imagen_path), cv2.IMREAD_COLOR)
+            if img_3canales is None:
+                raise ValueError(f"No se pudo cargar: {imagen_path}")
+            
+            # Verificar que tiene 3 canales
+            if len(img_3canales.shape) != 3 or img_3canales.shape[2] != 3:
+                raise ValueError(f"Imagen debe tener 3 canales RGB, pero tiene forma: {img_3canales.shape}")
+            
+            # Redimensionar si es necesario
+            if img_3canales.shape[0] != img_size or img_3canales.shape[1] != img_size:
+                img_3canales = cv2.resize(img_3canales, (img_size, img_size), interpolation=cv2.INTER_LINEAR)
         
         # Normalizar a [0, 1] para el modelo
         img_normalized = img_3canales.astype(np.float32) / 255.0
@@ -114,7 +151,7 @@ def inferir_imagen(
         # Calcular error de reconstrucción (promedio sobre canales)
         error_map = np.mean((reconstruction_np - img_normalized) ** 2, axis=2)
         
-        is_anomaly, estadisticas = detectar_anomalia(error_map)
+        is_anomaly, estadisticas = detectar_anomalia(error_map, umbral_global=umbral_global)
         tiempo = time.time() - inicio
         
         return is_anomaly, estadisticas, tiempo
@@ -157,36 +194,47 @@ def cargar_modelo(
 def obtener_imagenes_etiquetadas(etiquetadas_dir: Path) -> Tuple[List[Path], List[int]]:
     """
     Obtiene todas las imágenes etiquetadas y sus etiquetas.
+    Busca en carpetas 'sin fallas', 'normal' (para normal) y 'fallas' (para fallas).
     
     Returns:
         (lista_imagenes, lista_etiquetas) donde 0=normal, 1=fallas
     """
     imagenes = []
     etiquetas = []
+    extensiones = ['.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff']
+    extensiones_lower = [ext.lower() for ext in extensiones]
     
-    # Normal = 0
-    normal_dir = etiquetadas_dir / "normal"
-    if normal_dir.exists():
-        extensiones = ['.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff']
-        for ext in extensiones:
-            for img_path in normal_dir.glob(f"*{ext}"):
-                imagenes.append(img_path)
-                etiquetas.append(0)
-            for img_path in normal_dir.glob(f"*{ext.upper()}"):
-                imagenes.append(img_path)
-                etiquetas.append(0)
+    # Normal = 0 (buscar en 'sin fallas' o 'normal')
+    for nombre_carpeta in ['sin fallas', 'sin_fallas', 'normal']:
+        normal_dir = etiquetadas_dir / nombre_carpeta
+        if normal_dir.exists():
+            # Usar un set para evitar duplicados
+            imagenes_encontradas = set()
+            for archivo in normal_dir.iterdir():
+                if archivo.is_file():
+                    ext = archivo.suffix.lower()
+                    if ext in extensiones_lower:
+                        # Usar ruta absoluta para evitar duplicados en Windows
+                        if archivo.resolve() not in imagenes_encontradas:
+                            imagenes.append(archivo)
+                            etiquetas.append(0)
+                            imagenes_encontradas.add(archivo.resolve())
+            break  # Solo usar la primera carpeta encontrada
     
     # Fallas = 1
     fallas_dir = etiquetadas_dir / "fallas"
     if fallas_dir.exists():
-        extensiones = ['.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff']
-        for ext in extensiones:
-            for img_path in fallas_dir.glob(f"*{ext}"):
-                imagenes.append(img_path)
-                etiquetas.append(1)
-            for img_path in fallas_dir.glob(f"*{ext.upper()}"):
-                imagenes.append(img_path)
-                etiquetas.append(1)
+        # Usar un set para evitar duplicados
+        imagenes_encontradas = set()
+        for archivo in fallas_dir.iterdir():
+            if archivo.is_file():
+                ext = archivo.suffix.lower()
+                if ext in extensiones_lower:
+                    # Usar ruta absoluta para evitar duplicados en Windows
+                    if archivo.resolve() not in imagenes_encontradas:
+                        imagenes.append(archivo)
+                        etiquetas.append(1)
+                        imagenes_encontradas.add(archivo.resolve())
     
     return imagenes, etiquetas
 
@@ -205,8 +253,39 @@ def calcular_metricas(y_true: List[int], y_pred: List[int], y_scores: Optional[L
     f1 = f1_score(y_true, y_pred, zero_division=0)
     
     # Confusion matrix
-    cm = confusion_matrix(y_true, y_pred)
-    tn, fp, fn, tp = cm.ravel() if cm.size == 4 else (0, 0, 0, 0)
+    # sklearn usa orden: [0, 1] para las clases
+    # Estructura: [[TN, FP], [FN, TP]]
+    # donde: 0=Normal, 1=Fallas
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+    
+    # Verificar tamaño de la matriz
+    if cm.size == 4:
+        # Matriz 2x2 completa
+        tn, fp, fn, tp = cm.ravel()
+    elif cm.size == 1:
+        # Solo una clase presente
+        if len(np.unique(y_true)) == 1 and len(np.unique(y_pred)) == 1:
+            if y_true[0] == 0 and y_pred[0] == 0:
+                tn, fp, fn, tp = cm[0, 0], 0, 0, 0
+            elif y_true[0] == 1 and y_pred[0] == 1:
+                tn, fp, fn, tp = 0, 0, 0, cm[0, 0]
+            else:
+                tn, fp, fn, tp = 0, 0, 0, 0
+        else:
+            tn, fp, fn, tp = 0, 0, 0, 0
+    else:
+        # Caso inesperado
+        print(f"ADVERTENCIA: Matriz de confusión con tamaño inesperado: {cm.shape}")
+        tn, fp, fn, tp = 0, 0, 0, 0
+    
+    # Validar que los valores tengan sentido
+    total_esperado = len(y_true)
+    total_calculado = tn + fp + fn + tp
+    if total_calculado != total_esperado:
+        print(f"ADVERTENCIA: Suma de matriz de confusión ({total_calculado}) no coincide con total de imágenes ({total_esperado})")
+        print(f"  Matriz de confusión: {cm}")
+        print(f"  Etiquetas reales únicas: {np.unique(y_true, return_counts=True)}")
+        print(f"  Predicciones únicas: {np.unique(y_pred, return_counts=True)}")
     
     # Specificity
     specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
@@ -288,7 +367,11 @@ def evaluar_modelo(
     patch_size: int = 256,
     overlap_ratio: float = 0.3,
     output_dir: Path = None,
-    device: torch.device = None
+    device: torch.device = None,
+    progress_interval: int = 100,
+    umbral_percentil: float = 95.0,
+    umbral_fijo: Optional[float] = None,
+    aplicar_preprocesamiento: bool = False
 ) -> Dict:
     """
     Evalúa un modelo completo.
@@ -305,41 +388,129 @@ def evaluar_modelo(
     print(f"Modelo: {modelo_path.name}")
     print(f"Imágenes a evaluar: {len(imagenes)}")
     print(f"Dispositivo: {device}")
+    print(f"Preprocesamiento: {'SÍ (aplicar)' if aplicar_preprocesamiento else 'NO (imágenes ya preprocesadas)'}")
     
     # Cargar modelo
     print("Cargando modelo...")
     model = cargar_modelo(modelo_path, usar_transfer_learning, encoder_name, device)
     print("Modelo cargado correctamente.")
     
-    # Realizar inferencias
-    print("\nRealizando inferencias...")
-    predicciones = []
+    # Realizar inferencias (primera pasada: calcular todos los errores)
+    print("\nRealizando inferencias (primera pasada: calculando errores)...")
     scores = []  # Error sum como score (mayor error = más probable anomalía)
     estadisticas_imagenes = []
     tiempos = []
     
     for idx, imagen_path in enumerate(imagenes, 1):
-        if idx % 100 == 0:
+        if idx % progress_interval == 0:
             print(f"  Procesando {idx}/{len(imagenes)}...")
         
-        is_anomaly, stats, tiempo = inferir_imagen(
-            imagen_path, model, device, img_size, usar_segmentacion, patch_size, overlap_ratio
+        _, stats, tiempo = inferir_imagen(
+            imagen_path, model, device, img_size, usar_segmentacion, patch_size, overlap_ratio, 
+            umbral_global=None, aplicar_preprocesamiento=aplicar_preprocesamiento
         )
         
-        predicciones.append(1 if is_anomaly else 0)
         scores.append(stats.get('error_sum', 0.0))
         estadisticas_imagenes.append({
             'imagen': imagen_path.name,
             'etiqueta_real': int(etiquetas_reales[idx-1]),
-            'prediccion': int(is_anomaly),
             'estadisticas': stats,
             'tiempo': tiempo
         })
         tiempos.append(tiempo)
     
+    # Calcular umbral: fijo o adaptativo
+    scores_array = np.array(scores)
+    
+    if umbral_fijo is not None:
+        # Usar umbral fijo proporcionado por el usuario
+        umbral_global = umbral_fijo
+        print(f"\nUmbral fijo configurado:")
+        print(f"  Umbral: {umbral_global:.6f}")
+        print(f"  Rango de errores: min={scores_array.min():.6f}, max={scores_array.max():.6f}, media={scores_array.mean():.6f}")
+    else:
+        # Calcular umbral adaptativo basado en la distribución de errores
+        # Si hay imágenes normales (etiqueta 0), usar su distribución para el umbral
+        indices_normales = [i for i, label in enumerate(etiquetas_reales) if label == 0]
+        
+        if len(indices_normales) > 0:
+            scores_normales = scores_array[indices_normales]
+            # Usar percentil de imágenes normales como umbral base
+            umbral_base = np.percentile(scores_normales, umbral_percentil)
+            # Ajustar umbral: usar percentil global si es más alto
+            umbral_global = max(umbral_base, np.percentile(scores_array, umbral_percentil))
+            print(f"\nUmbral adaptativo calculado (percentil {umbral_percentil}%):")
+            print(f"  Error medio (normales): {np.mean(scores_normales):.6f}")
+            print(f"  Percentil {umbral_percentil}% (normales): {umbral_base:.6f}")
+            print(f"  Percentil {umbral_percentil}% (todas): {np.percentile(scores_array, umbral_percentil):.6f}")
+            print(f"  Umbral final: {umbral_global:.6f}")
+        else:
+            # Si no hay imágenes normales etiquetadas, usar percentil global
+            umbral_global = np.percentile(scores_array, umbral_percentil)
+            print(f"\nUmbral adaptativo calculado (sin imágenes normales etiquetadas, percentil {umbral_percentil}%):")
+            print(f"  Percentil {umbral_percentil}% (todas): {umbral_global:.6f}")
+    
+    # Segunda pasada: clasificar con el umbral global
+    print("\nClasificando imágenes con umbral adaptativo...")
+    print(f"  Umbral global: {umbral_global:.6f}")
+    print(f"  Rango de errores: min={scores_array.min():.6f}, max={scores_array.max():.6f}, media={scores_array.mean():.6f}")
+    
+    predicciones = []
+    ejemplos_clasificacion = []  # Guardar algunos ejemplos para mostrar
+    
+    for idx, (imagen_path, stats) in enumerate(zip(imagenes, estadisticas_imagenes)):
+        error_sum = stats['estadisticas']['error_sum']
+        etiqueta_real = stats['etiqueta_real']
+        is_anomaly = error_sum > umbral_global
+        prediccion = 1 if is_anomaly else 0
+        
+        predicciones.append(prediccion)
+        estadisticas_imagenes[idx]['prediccion'] = prediccion
+        estadisticas_imagenes[idx]['estadisticas']['umbral_global'] = float(umbral_global)
+        
+        # Guardar algunos ejemplos para mostrar
+        if len(ejemplos_clasificacion) < 5:
+            ejemplos_clasificacion.append({
+                'imagen': imagen_path.name,
+                'error_sum': error_sum,
+                'umbral': umbral_global,
+                'etiqueta_real': 'Normal' if etiqueta_real == 0 else 'Falla',
+                'prediccion': 'Normal' if prediccion == 0 else 'Falla',
+                'correcto': '✅' if etiqueta_real == prediccion else '❌'
+            })
+    
+    # Mostrar ejemplos de clasificación
+    print(f"\nEjemplos de clasificación (primeras 5 imágenes):")
+    print(f"{'Imagen':<30} {'Error':<12} {'Umbral':<12} {'Real':<10} {'Predicción':<12} {'Resultado'}")
+    print("-" * 90)
+    for ej in ejemplos_clasificacion:
+        print(f"{ej['imagen'][:28]:<30} {ej['error_sum']:>10.2f}  {ej['umbral']:>10.2f}  "
+              f"{ej['etiqueta_real']:<10} {ej['prediccion']:<12} {ej['correcto']}")
+    
     # Calcular métricas
     print("\nCalculando métricas...")
+    
+    # Validar que las listas tengan la misma longitud
+    if len(etiquetas_reales) != len(predicciones):
+        print(f"ERROR: Longitud de etiquetas reales ({len(etiquetas_reales)}) != longitud de predicciones ({len(predicciones)})")
+        return {}
+    
+    # Mostrar resumen antes de calcular métricas
+    print(f"\nResumen de clasificación:")
+    print(f"  Total imágenes: {len(etiquetas_reales)}")
+    print(f"  Normales reales: {sum(1 for e in etiquetas_reales if e == 0)}")
+    print(f"  Fallas reales: {sum(1 for e in etiquetas_reales if e == 1)}")
+    print(f"  Predicciones normales: {sum(1 for p in predicciones if p == 0)}")
+    print(f"  Predicciones fallas: {sum(1 for p in predicciones if p == 1)}")
+    
     metricas = calcular_metricas(etiquetas_reales, predicciones, scores)
+    
+    # Mostrar matriz de confusión en consola
+    print(f"\nMatriz de confusión:")
+    print(f"                Predicción")
+    print(f"              Normal  Fallas")
+    print(f"Real Normal    {metricas['true_negatives']:4d}    {metricas['false_positives']:4d}")
+    print(f"     Fallas    {metricas['false_negatives']:4d}    {metricas['true_positives']:4d}")
     
     # Agregar estadísticas adicionales
     metricas['tiempo_promedio'] = float(np.mean(tiempos))
@@ -416,7 +587,15 @@ Calcula métricas: accuracy, precision, recall, F1-score, specificity, confusion
         '--etiquetadas_dir',
         type=str,
         default=None,
-        help='Directorio con imágenes etiquetadas (default: etiquetadas/)'
+        help='Directorio con imágenes procesadas de validación (default: desde config.VALIDACION_OUTPUT_PATH o etiquetadas/)'
+    )
+    parser.add_argument(
+        '--modelo',
+        type=int,
+        nargs='+',
+        default=None,
+        choices=[1],
+        help='Modelo a evaluar (1=Autoencoder). Si no se especifica, evalúa todos los modelos encontrados.'
     )
     parser.add_argument(
         '--modelos_dir',
@@ -468,13 +647,73 @@ Calcula métricas: accuracy, precision, recall, F1-score, specificity, confusion
         action='store_true',
         help='Saltar evaluación del modelo ResNet50'
     )
+    parser.add_argument(
+        '--progress_interval',
+        type=int,
+        default=100,
+        help='Intervalo para mostrar progreso (cada N imágenes procesadas, default: 100)'
+    )
+    parser.add_argument(
+        '--umbral_percentil',
+        type=float,
+        default=95.0,
+        help='Percentil para calcular umbral adaptativo basado en distribución de errores (default: 95.0). Valores más altos = menos sensibles, más bajos = más sensibles. Se ignora si se usa --umbral_fijo.'
+    )
+    parser.add_argument(
+        '--umbral_fijo',
+        type=float,
+        default=None,
+        help='Umbral fijo absoluto para error_sum. Si se especifica, se usa este valor en lugar del umbral adaptativo. Ejemplo: --umbral_fijo 150.0'
+    )
+    parser.add_argument(
+        '--aplicar_preprocesamiento',
+        action='store_true',
+        help='Aplicar preprocesamiento de 3 canales (default: False, asume imágenes ya preprocesadas)'
+    )
+    parser.add_argument(
+        '--redimensionar',
+        action='store_true',
+        default=False,
+        help='Usar dataset de validación reescalado y modelos entrenados con reescalado (default: False)'
+    )
     
     args = parser.parse_args()
     
     # Determinar directorios
-    etiquetadas_dir = Path(args.etiquetadas_dir) if args.etiquetadas_dir else ETIQUETADAS_DIR
-    modelos_dir = Path(args.modelos_dir) if args.modelos_dir else MODELOS_DIR
-    output_dir = Path(args.output_dir) if args.output_dir else OUTPUT_DIR
+    # Priorizar: argumento > config según --redimensionar > ETIQUETADAS_DIR
+    if args.etiquetadas_dir:
+        etiquetadas_dir = Path(args.etiquetadas_dir)
+    else:
+        # Usar función de config para obtener ruta correcta según si se reescala o no
+        ruta_validacion = config.obtener_ruta_validacion(redimensionar=args.redimensionar)
+        if ruta_validacion:
+            etiquetadas_dir = Path(ruta_validacion)
+            if not etiquetadas_dir.exists():
+                print(f"ADVERTENCIA: La ruta de validación no existe: {etiquetadas_dir}")
+                print(f"  Usando fallback: {ETIQUETADAS_DIR}")
+                etiquetadas_dir = ETIQUETADAS_DIR
+        else:
+            etiquetadas_dir = ETIQUETADAS_DIR
+    
+    # Determinar directorio de modelos según si se reescala o no
+    if args.modelos_dir:
+        modelos_dir = Path(args.modelos_dir)
+    else:
+        base_models_dir = PROJECT_ROOT / "modelos" / "modelo1_autoencoder"
+        if args.redimensionar:
+            modelos_dir = base_models_dir / "models_256"
+        else:
+            modelos_dir = base_models_dir / "models"
+    
+    # Determinar directorio de salida según si se reescala o no
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+    else:
+        base_output_dir = PROJECT_ROOT / "evaluaciones"
+        if args.redimensionar:
+            output_dir = base_output_dir / "modelo1_256"
+        else:
+            output_dir = base_output_dir / "modelo1"
     
     # Validar directorios
     if not etiquetadas_dir.exists():
@@ -504,41 +743,46 @@ Calcula métricas: accuracy, precision, recall, F1-score, specificity, confusion
     
     # Definir modelos a evaluar
     modelos_a_evaluar = []
-    if not args.skip_propio:
-        modelo_path = modelos_dir / "autoencoder_normal.pt"
-        if modelo_path.exists():
-            modelos_a_evaluar.append({
-                'path': modelo_path,
-                'nombre': 'Modelo_Propio',
-                'transfer_learning': False,
-                'encoder_name': None
-            })
-        else:
-            print(f"ADVERTENCIA: No se encontró autoencoder_normal.pt")
     
-    if not args.skip_resnet18:
-        modelo_path = modelos_dir / "autoencoder_resnet18.pt"
-        if modelo_path.exists():
-            modelos_a_evaluar.append({
-                'path': modelo_path,
-                'nombre': 'Modelo_ResNet18',
-                'transfer_learning': True,
-                'encoder_name': 'resnet18'
-            })
-        else:
-            print(f"ADVERTENCIA: No se encontró autoencoder_resnet18.pt")
+    # Si se especifica --modelo, solo evaluar ese modelo (aunque aquí solo hay modelo 1)
+    evaluar_todos = args.modelo is None
     
-    if not args.skip_resnet50:
-        modelo_path = modelos_dir / "autoencoder_resnet50.pt"
-        if modelo_path.exists():
-            modelos_a_evaluar.append({
-                'path': modelo_path,
-                'nombre': 'Modelo_ResNet50',
-                'transfer_learning': True,
-                'encoder_name': 'resnet50'
-            })
-        else:
-            print(f"ADVERTENCIA: No se encontró autoencoder_resnet50.pt")
+    if evaluar_todos or (args.modelo and 1 in args.modelo):
+        if not args.skip_propio:
+            modelo_path = modelos_dir / "autoencoder_normal.pt"
+            if modelo_path.exists():
+                modelos_a_evaluar.append({
+                    'path': modelo_path,
+                    'nombre': 'Modelo_Propio',
+                    'transfer_learning': False,
+                    'encoder_name': None
+                })
+            else:
+                print(f"ADVERTENCIA: No se encontró autoencoder_normal.pt")
+        
+        if not args.skip_resnet18:
+            modelo_path = modelos_dir / "autoencoder_resnet18.pt"
+            if modelo_path.exists():
+                modelos_a_evaluar.append({
+                    'path': modelo_path,
+                    'nombre': 'Modelo_ResNet18',
+                    'transfer_learning': True,
+                    'encoder_name': 'resnet18'
+                })
+            else:
+                print(f"ADVERTENCIA: No se encontró autoencoder_resnet18.pt")
+        
+        if not args.skip_resnet50:
+            modelo_path = modelos_dir / "autoencoder_resnet50.pt"
+            if modelo_path.exists():
+                modelos_a_evaluar.append({
+                    'path': modelo_path,
+                    'nombre': 'Modelo_ResNet50',
+                    'transfer_learning': True,
+                    'encoder_name': 'resnet50'
+                })
+            else:
+                print(f"ADVERTENCIA: No se encontró autoencoder_resnet50.pt")
     
     if len(modelos_a_evaluar) == 0:
         print("ERROR: No se encontraron modelos para evaluar")
@@ -562,7 +806,11 @@ Calcula métricas: accuracy, precision, recall, F1-score, specificity, confusion
             args.patch_size,
             args.overlap_ratio,
             output_dir,
-            device
+            device,
+            args.progress_interval,
+            args.umbral_percentil,
+            args.umbral_fijo,
+            args.aplicar_preprocesamiento
         )
         todas_metricas[modelo_cfg['nombre']] = metricas
     

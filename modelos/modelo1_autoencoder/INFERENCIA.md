@@ -98,3 +98,4 @@ python main.py --image_path "imagen.png" --model_path "models/autoencoder_normal
 4. **Tiempo de inferencia**: Se muestra en consola y se guarda en los metadatos de las imágenes de salida
 
 
+

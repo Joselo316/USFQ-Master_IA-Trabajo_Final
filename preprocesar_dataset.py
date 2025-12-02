@@ -151,21 +151,21 @@ Ejemplo de uso:
         '--input_dir',
         type=str,
         default=None,
-        help=f'Directorio de entrada con carpetas 0-9 (default: {config.DATASET_PATH})'
+        help=f'Directorio de entrada con carpetas 0-9 (default: {config.PREPROCESAMIENTO_INPUT_PATH})'
     )
     parser.add_argument(
         '--output_dir',
         type=str,
-        default="E:/Dataset/preprocesadas",
-        help='Directorio de salida donde se guardarán las imágenes preprocesadas (default: E:/Dataset/preprocesadas)'
+        default=None,
+        help=f'Directorio de salida donde se guardarán las imágenes preprocesadas (default: {config.PREPROCESAMIENTO_OUTPUT_PATH})'
     )
     parser.add_argument(
         '--redimensionar',
         type=lambda x: (str(x).lower() in ['true', '1', 'yes', 'on']),
-        default=True,
+        default=False,
         nargs='?',
         const=True,
-        help='Redimensionar imágenes antes del preprocesamiento (default: True, 256x256). Usa --no-redimensionar para desactivar.'
+        help='Redimensionar imágenes antes del preprocesamiento (default: False). Usa --redimensionar para activar.'
     )
     parser.add_argument(
         '--no-redimensionar',
@@ -197,11 +197,15 @@ Ejemplo de uso:
     
     # Obtener directorio de entrada
     if args.input_dir is None:
-        input_dir = Path(config.DATASET_PATH)
+        input_dir = Path(config.PREPROCESAMIENTO_INPUT_PATH)
     else:
         input_dir = Path(args.input_dir)
     
-    output_dir = Path(args.output_dir)
+    # Obtener directorio de salida
+    if args.output_dir is None:
+        output_dir = Path(config.PREPROCESAMIENTO_OUTPUT_PATH)
+    else:
+        output_dir = Path(args.output_dir)
     
     # Validar directorio de entrada
     if not input_dir.exists():

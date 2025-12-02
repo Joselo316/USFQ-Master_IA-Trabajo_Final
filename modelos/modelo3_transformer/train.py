@@ -155,6 +155,15 @@ def entrenar_modelo(
     classifier.fit(features_normales)
     print(f"Clasificador {classifier_type} entrenado correctamente.")
     
+    # Verificar que el scaler existe para EllipticEnvelopeClassifier
+    from modelos.modelo3_transformer.classifiers import EllipticEnvelopeClassifier
+    if isinstance(classifier, EllipticEnvelopeClassifier):
+        if not hasattr(classifier, 'scaler') or classifier.scaler is None:
+            print("ADVERTENCIA: El clasificador EllipticEnvelopeClassifier no tiene scaler después del entrenamiento.")
+            print("Esto no debería ocurrir. Verificando el código...")
+        else:
+            print(f"  Scaler verificado: mean shape = {classifier.scaler.mean_.shape if hasattr(classifier.scaler, 'mean_') else 'N/A'}")
+    
     # Calcular estadísticas
     print("\nCalculando estadísticas...")
     estadisticas = {
@@ -171,9 +180,23 @@ def entrenar_modelo(
     
     # Guardar modelo
     print(f"\nGuardando modelo en {output_path}...")
+    
+    # Verificar que el clasificador tiene todos los atributos necesarios antes de guardar
+    from modelos.modelo3_transformer.classifiers import EllipticEnvelopeClassifier
+    if isinstance(classifier, EllipticEnvelopeClassifier):
+        if not hasattr(classifier, 'scaler') or classifier.scaler is None:
+            print("ERROR: El clasificador EllipticEnvelopeClassifier no tiene scaler. No se puede guardar correctamente.")
+            print("Esto indica un problema en el código. El scaler debería haberse creado en __init__ y entrenado en fit().")
+            return False
+        # Verificar que el scaler está entrenado
+        if not hasattr(classifier.scaler, 'mean_'):
+            print("ERROR: El scaler no está entrenado. No se puede guardar correctamente.")
+            return False
+        print(f"  Verificando scaler antes de guardar: mean shape = {classifier.scaler.mean_.shape}")
+    
     modelo_data = {
         'features_normales': features_normales,
-        'classifier': classifier,  # Guardar el clasificador entrenado
+        'classifier': classifier,  # Guardar el clasificador entrenado (incluye scaler si es EllipticEnvelope)
         'estadisticas': estadisticas
     }
     
@@ -184,6 +207,22 @@ def entrenar_modelo(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, 'wb') as f:
         pickle.dump(modelo_data, f)
+    
+    # Verificar que el modelo se guardó correctamente (opcional, solo para depuración)
+    if isinstance(classifier, EllipticEnvelopeClassifier):
+        print("  Verificando que el modelo se guardó correctamente...")
+        try:
+            with open(output_path, 'rb') as f:
+                modelo_verificacion = pickle.load(f)
+            if 'classifier' in modelo_verificacion:
+                classifier_verificado = modelo_verificacion['classifier']
+                if isinstance(classifier_verificado, EllipticEnvelopeClassifier):
+                    if hasattr(classifier_verificado, 'scaler') and classifier_verificado.scaler is not None:
+                        print("  ✓ Modelo guardado correctamente con scaler")
+                    else:
+                        print("  ✗ ADVERTENCIA: El modelo cargado no tiene scaler")
+        except Exception as e:
+            print(f"  ADVERTENCIA: No se pudo verificar el modelo guardado: {e}")
     
     tiempo_total = time.time() - inicio
     

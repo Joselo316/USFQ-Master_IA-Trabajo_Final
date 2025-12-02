@@ -4,6 +4,7 @@ Script principal para entrenar y evaluar FastFlow.
 
 import argparse
 import sys
+import os
 from pathlib import Path
 import torch
 import torch.nn as nn
@@ -117,6 +118,52 @@ def train_epoch(
     return avg_loss
 
 
+def validate_epoch(
+    model: FastFlow,
+    val_loader: DataLoader,
+    device: torch.device,
+    use_amp: bool = False
+) -> float:
+    """
+    Valida el modelo por una época.
+    
+    Returns:
+        Pérdida promedio de validación
+    """
+    model.eval()
+    total_loss = 0.0
+    num_batches = 0
+    
+    with torch.no_grad():
+        for images, _ in val_loader:
+            images = images.to(device, non_blocking=True)
+            
+            # Forward pass
+            if use_amp:
+                with torch.cuda.amp.autocast():
+                    z_list, log_det_list = model(images)
+                    
+                    # Calcular pérdida
+                    loss = 0.0
+                    for z, log_det in zip(z_list, log_det_list):
+                        log_prob = -0.5 * torch.sum(z ** 2, dim=(1, 2, 3)) + log_det
+                        loss -= log_prob.mean()
+            else:
+                z_list, log_det_list = model(images)
+                
+                # Calcular pérdida
+                loss = 0.0
+                for z, log_det in zip(z_list, log_det_list):
+                    log_prob = -0.5 * torch.sum(z ** 2, dim=(1, 2, 3)) + log_det
+                    loss -= log_prob.mean()
+            
+            total_loss += loss.item()
+            num_batches += 1
+    
+    avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
+    return avg_loss
+
+
 def train(
     model: FastFlow,
     train_loader: DataLoader,
@@ -131,7 +178,8 @@ def train(
     patience: int = 10,
     min_delta: float = 0.0001,
     output_dir: Path = None,
-    config: dict = None
+    config: dict = None,
+    val_loader: DataLoader = None
 ):
     """
     Entrena el modelo FastFlow.
@@ -165,6 +213,7 @@ def train(
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     history = {
         'train_loss': [],
+        'val_loss': [] if val_loader is not None else None,
         'epoch': [],
         'learning_rate': [],
         'best_loss': [],
@@ -187,37 +236,53 @@ def train(
     print(f"{'='*70}\n")
     
     for epoch in range(1, epochs + 1):
-        loss = train_epoch(
+        train_loss = train_epoch(
             model, train_loader, optimizer, device, epoch,
             use_amp=use_amp, scaler=scaler, accumulation_steps=accumulation_steps
         )
-        print(f"Epoch {epoch}/{epochs} - Loss: {loss:.6f}")
+        
+        # Validación si hay val_loader
+        val_loss = None
+        if val_loader is not None:
+            val_loss = validate_epoch(model, val_loader, device, use_amp=use_amp)
+            print(f"Epoch {epoch}/{epochs} - Train Loss: {train_loss:.6f} - Val Loss: {val_loss:.6f}")
+        else:
+            print(f"Epoch {epoch}/{epochs} - Loss: {train_loss:.6f}")
+        
+        # Usar val_loss para early stopping si está disponible, sino train_loss
+        loss_for_early_stopping = val_loss if val_loss is not None else train_loss
         
         # Guardar en historial
-        history['train_loss'].append(float(loss))
+        history['train_loss'].append(float(train_loss))
+        if val_loss is not None:
+            history['val_loss'].append(float(val_loss))
         history['epoch'].append(epoch)
         history['learning_rate'].append(float(optimizer.param_groups[0]['lr']))
         history['best_loss'].append(float(best_loss))
         
-        # Verificar mejora
-        if loss < best_loss:
-            # Calcular mejora relativa
-            if best_loss != float('inf'):
-                mejora_relativa = (best_loss - loss) / best_loss
+        # Verificar mejora (usar valor absoluto porque el loss es negativo)
+        # El loss negativo está disminuyendo (mejorando), así que comparamos valores absolutos
+        loss_abs = abs(loss_for_early_stopping)
+        best_loss_abs = abs(best_loss) if best_loss != float('inf') else float('inf')
+        
+        if loss_abs < best_loss_abs:
+            # Calcular mejora relativa (usando valores absolutos)
+            if best_loss_abs != float('inf'):
+                mejora_relativa = (best_loss_abs - loss_abs) / best_loss_abs
             else:
                 mejora_relativa = 1.0  # Primera mejora siempre es significativa
             
             # Verificar si la mejora es significativa (early stopping)
             if early_stopping:
                 if mejora_relativa >= min_delta:
-                    best_loss = loss
+                    best_loss = loss_for_early_stopping
                     patience_counter = 0
                     if save_path is not None:
                         torch.save({
                             'epoch': epoch,
                             'model_state_dict': model.state_dict(),
                             'optimizer_state_dict': optimizer.state_dict(),
-                            'loss': loss
+                            'loss': loss_for_early_stopping
                         }, save_path)
                         print(f"  ✓ Mejora detectada: {mejora_relativa*100:.4f}% (>= {min_delta*100:.4f}%)")
                         print(f"  ✓ Mejor modelo guardado: {save_path}")
@@ -229,14 +294,14 @@ def train(
                     print(f"  ⚠ Patience: {patience_counter}/{patience}")
             else:
                 # Sin early stopping, siempre actualizar
-                best_loss = loss
+                best_loss = loss_for_early_stopping
                 patience_counter = 0
                 if save_path is not None:
                     torch.save({
                         'epoch': epoch,
                         'model_state_dict': model.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
-                        'loss': loss
+                        'loss': loss_for_early_stopping
                     }, save_path)
                     print(f"  ✓ Mejor modelo guardado: {save_path}")
         else:
@@ -274,7 +339,12 @@ def train(
     print(f"Épocas entrenadas: {len(history['train_loss'])}/{epochs}")
     print(f"Mejor loss: {best_loss:.6f}")
     if len(history['train_loss']) > 0:
-        best_epoch = history['train_loss'].index(min(history['train_loss'])) + 1
+        # Encontrar mejor época: usar val_loss si está disponible, sino train_loss
+        # El loss es negativo, así que buscamos el máximo (menos negativo = mejor)
+        if history['val_loss'] is not None and len(history['val_loss']) > 0:
+            best_epoch = history['val_loss'].index(max(history['val_loss'])) + 1
+        else:
+            best_epoch = history['train_loss'].index(max(history['train_loss'])) + 1
         print(f"Mejor época: {best_epoch}")
     if save_path and save_path.exists():
         print(f"Modelo guardado en: {save_path}")
@@ -379,6 +449,8 @@ def main():
                        help='Ruta al modelo entrenado (para evaluación)')
     parser.add_argument('--output_dir', type=str, default=None,
                        help='Directorio de salida (default: outputs/)')
+    parser.add_argument('--models_dir', type=str, default=None,
+                       help='Directorio para guardar modelos (default: models/)')
     parser.add_argument('--save_samples', action='store_true',
                        help='Guardar imágenes de ejemplo con mapas de anomalía')
     parser.add_argument('--num_samples', type=int, default=10,
@@ -403,6 +475,8 @@ def main():
                        help='Mejora mínima relativa para early stopping (default: 0.0001)')
     parser.add_argument('--num_workers', type=int, default=None,
                        help='Número de workers para DataLoader (default: min(8, CPU_count), aumentar para más velocidad)')
+    parser.add_argument('--val_split', type=float, default=0.15,
+                       help='Proporción de datos para validación durante entrenamiento (default: 0.15)')
     
     args = parser.parse_args()
     
@@ -411,7 +485,7 @@ def main():
     output_dir = Path(args.output_dir) if args.output_dir else Path(__file__).parent / 'outputs'
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    models_dir = Path(__file__).parent / 'models'
+    models_dir = Path(args.models_dir) if args.models_dir else Path(__file__).parent / 'models'
     models_dir.mkdir(parents=True, exist_ok=True)
     
     # Device
@@ -433,13 +507,16 @@ def main():
     # Entrenamiento
     if args.mode in ['train', 'train_eval']:
         print("\nCargando dataset de entrenamiento...")
-        train_loader = get_train_loader(
+        train_loader, val_loader = get_train_loader(
             data_dir=data_dir,
             batch_size=args.batch_size,
             img_size=args.img_size,
-            num_workers=args.num_workers
+            num_workers=args.num_workers,
+            val_split=args.val_split,
+            return_val_loader=True
         )
         print(f"Imágenes de entrenamiento: {len(train_loader.dataset)}")
+        print(f"Imágenes de validación: {len(val_loader.dataset)}")
         print(f"DataLoader num_workers: {train_loader.num_workers}")
         
         model_path = models_dir / f'fastflow_{args.backbone}_{args.img_size}.pt'
@@ -462,6 +539,7 @@ def main():
             'patience': args.patience if args.early_stopping else None,
             'min_delta': args.min_delta if args.early_stopping else None,
             'num_workers': args.num_workers,
+            'val_split': args.val_split,
             'fecha_entrenamiento': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
         
@@ -474,7 +552,8 @@ def main():
             patience=args.patience,
             min_delta=args.min_delta,
             output_dir=output_dir,
-            config=config
+            config=config,
+            val_loader=val_loader
         )
         
         # Cargar mejor modelo para evaluación
@@ -492,14 +571,57 @@ def main():
             print(f"Modelo cargado desde: {args.model_path}")
         
         print("\nCargando dataset de evaluación...")
-        eval_loader = get_eval_loader(
-            data_dir=data_dir,
-            split='valid',
-            batch_size=args.batch_size,
-            img_size=args.img_size,
-            num_workers=args.num_workers
-        )
-        print(f"Imágenes de evaluación: {len(eval_loader.dataset)}")
+        try:
+            # Intentar cargar desde valid/ si existe
+            eval_loader = get_eval_loader(
+                data_dir=data_dir,
+                split='valid',
+                batch_size=args.batch_size,
+                img_size=args.img_size,
+                num_workers=args.num_workers
+            )
+            print(f"Imágenes de evaluación: {len(eval_loader.dataset)}")
+        except ValueError:
+            # Si no existe valid/, intentar cargar desde la raíz (normal/ y defectuoso/)
+            print("No se encontró split 'valid', intentando cargar desde raíz...")
+            eval_loader = get_eval_loader(
+                data_dir=data_dir,
+                split='train',  # Usar train pero con class_name=None para cargar ambos
+                batch_size=args.batch_size,
+                img_size=args.img_size,
+                num_workers=args.num_workers
+            )
+            # Crear dataset manualmente con normal y defectuoso
+            from modelos.modelo4_fastflow.dataset import MDPDataset
+            normal_dataset = MDPDataset(data_dir=data_dir, split='train', class_name='normal', img_size=args.img_size)
+            try:
+                defectuoso_dataset = MDPDataset(data_dir=data_dir, split='train', class_name='defectuoso', img_size=args.img_size)
+                from torch.utils.data import ConcatDataset
+                eval_dataset = ConcatDataset([normal_dataset, defectuoso_dataset])
+                eval_loader = DataLoader(
+                    eval_dataset,
+                    batch_size=args.batch_size,
+                    shuffle=False,
+                    num_workers=args.num_workers or min(8, os.cpu_count() or 1),
+                    pin_memory=True,
+                    prefetch_factor=2 if (args.num_workers or min(8, os.cpu_count() or 1)) > 0 else None,
+                    persistent_workers=True if (args.num_workers or min(8, os.cpu_count() or 1)) > 0 else False
+                )
+                print(f"Imágenes de evaluación: {len(eval_dataset)} (normal: {len(normal_dataset)}, defectuoso: {len(defectuoso_dataset)})")
+            except ValueError:
+                print("ADVERTENCIA: No se encontraron imágenes defectuosas para evaluación.")
+                print("Usando solo imágenes normales del dataset de entrenamiento.")
+                eval_loader = DataLoader(
+                    normal_dataset,
+                    batch_size=args.batch_size,
+                    shuffle=False,
+                    num_workers=args.num_workers or min(8, os.cpu_count() or 1),
+                    pin_memory=True,
+                    prefetch_factor=2 if (args.num_workers or min(8, os.cpu_count() or 1)) > 0 else None,
+                    persistent_workers=True if (args.num_workers or min(8, os.cpu_count() or 1)) > 0 else False
+                )
+                print(f"Imágenes de evaluación: {len(normal_dataset)}")
+        
         print(f"DataLoader num_workers: {eval_loader.num_workers}")
         
         metrics = evaluate(

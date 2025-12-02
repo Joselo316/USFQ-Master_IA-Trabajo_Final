@@ -1,6 +1,6 @@
 # TesisMDP - Sistema de Detección de Anomalías en Tableros Laminados
 
-Este repositorio contiene tres modelos de detección de anomalías para tableros laminados, todos compartiendo un preprocesamiento común para garantizar una comparación justa de resultados.
+Este repositorio contiene cinco modelos de detección de anomalías para tableros laminados, todos compartiendo un preprocesamiento común para garantizar una comparación justa de resultados.
 
 ## Estructura del Proyecto
 
@@ -9,7 +9,12 @@ TesisMDP/
 ├── README.md
 ├── config.py                    # Configuración centralizada (ruta al dataset y parámetros)
 ├── preprocesar_dataset.py       # Script para preprocesar todo el dataset
+├── validacion.py                 # Script para procesar imágenes de validación
 ├── train_all_models.py          # Script maestro para entrenar todos los modelos
+├── evaluar_todos_modelos.py     # Script maestro para evaluar todos los modelos
+├── evaluar_modelo1.py           # Script de evaluación del modelo 1
+├── evaluar_modelo2.py           # Script de evaluación del modelo 2
+├── evaluar_modelo3.py           # Script de evaluación del modelo 3
 ├── requirements.txt             # Dependencias del proyecto
 ├── preprocesamiento/
 │   ├── preprocesamiento.py      # Preprocesamiento común de 3 canales
@@ -111,8 +116,11 @@ TesisMDP/
 Antes de entrenar, puedes preprocesar todo el dataset para acelerar el entrenamiento:
 
 ```bash
-# Preprocesar dataset completo (redimensiona a 256x256 y aplica preprocesamiento de 3 canales)
+# Preprocesar dataset completo (aplica preprocesamiento de 3 canales, mantiene tamaño original por defecto)
 python preprocesar_dataset.py --input_dir "E:/Dataset/clases" --output_dir "E:/Dataset/preprocesadas"
+
+# Preprocesar y reescalar a 256x256
+python preprocesar_dataset.py --input_dir "E:/Dataset/clases" --output_dir "E:/Dataset/preprocesadas_256" --redimensionar --img_size 256
 
 # Con procesamiento paralelo (más rápido)
 python preprocesar_dataset.py --input_dir "E:/Dataset/clases" --num_workers 30
@@ -120,23 +128,37 @@ python preprocesar_dataset.py --input_dir "E:/Dataset/clases" --num_workers 30
 
 El script:
 - Aplica el preprocesamiento de 3 canales a todas las imágenes
-- Redimensiona a 256x256 por defecto
+- Por defecto mantiene el tamaño original (usa `--redimensionar` para reescalar)
 - Mantiene la misma estructura de carpetas (0-9)
-- Guarda las imágenes preprocesadas en `E:/Dataset/preprocesadas` por defecto
+- Guarda las imágenes preprocesadas según la configuración en `config.py`
 
 **Ventaja**: Si usas imágenes preprocesadas, el entrenamiento será mucho más rápido ya que no necesita aplicar el preprocesamiento en cada época.
 
+**Nota**: Puedes generar dos versiones del dataset:
+- Sin reescalar: Para modelos que usan segmentación en parches (modelos 1, 2, 3)
+- Reescalado: Para modelos que redimensionan la imagen completa (modelos 4, 5)
+
 ## Configuración
 
-### 1. Configurar ruta al dataset
+### 1. Configurar rutas en config.py
 
-Edita el archivo `config.py` y actualiza la variable `DATASET_PATH` con la ruta absoluta a tu dataset:
+Edita el archivo `config.py` y actualiza las siguientes rutas:
 
 ```python
-DATASET_PATH = r"D:\Dataset\imagenes"  # Cambiar esta ruta
+# Rutas de preprocesamiento
+PREPROCESAMIENTO_INPUT_PATH = r"E:\Dataset\clases"  # Dataset original
+PREPROCESAMIENTO_OUTPUT_PATH = r"E:\Dataset\preprocesadas"  # Sin reescalar
+PREPROCESAMIENTO_OUTPUT_PATH_REDIMENSIONADO = r"E:\Dataset\preprocesadas_256"  # Con reescalado
+
+# Rutas de validación
+VALIDACION_INPUT_PATH = r"E:\Dataset\Validacion"  # Imágenes de validación originales
+VALIDACION_OUTPUT_PATH = r"E:\Dataset\Validacion_procesadas"  # Sin reescalar
+VALIDACION_OUTPUT_PATH_REDIMENSIONADO = r"E:\Dataset\Validacion_procesadas_256"  # Con reescalado
 ```
 
-**Importante**: El dataset debe permanecer fuera del repositorio. Solo se almacena la ruta en `config.py`.
+**Importante**: 
+- El dataset debe permanecer fuera del repositorio. Solo se almacenan las rutas en `config.py`.
+- Las rutas se seleccionan automáticamente según si se usa `--redimensionar` o no en los scripts de entrenamiento y evaluación.
 
 ### 2. Ubicación de los modelos entrenados
 
@@ -202,12 +224,12 @@ Este script elimina bordes negros y corrige la inclinación de los tableros. **Y
 
 ```bash
 # Desde la raíz del proyecto
-python train_all_models.py --modelo all --data_dir "ruta/al/dataset"
+python train_all_models.py --modelo all
 ```
 
 O usando las opciones alternativas:
 ```bash
-python train_all_models.py --all --data_dir "ruta/al/dataset"
+python train_all_models.py --all
 ```
 
 **Nota importante**: 
@@ -216,6 +238,12 @@ python train_all_models.py --all --data_dir "ruta/al/dataset"
 - **Modelo 3**: Entrena 5 variantes (k-NN, Isolation Forest, One-Class SVM, LOF, Elliptic Envelope) automáticamente
 - **Modelo 4**: Entrena FastFlow con el backbone especificado
 - **Modelo 5**: Entrena STPM con el backbone especificado
+
+**Configuración automática**:
+- Por defecto usa dataset sin reescalar (para modelos 1, 2, 3)
+- Usa `--redimensionar` para usar dataset reescalado (para modelos 4, 5)
+- Los modelos se guardan en `models/` o `models_256/` según corresponda
+- El script calcula automáticamente batch_size óptimo según tu GPU
 
 ### Entrenar modelos individuales
 
@@ -709,7 +737,7 @@ Este script:
 - Cada imagen incluye el tiempo de inferencia en los metadatos
 
 **Opciones principales:**
-- `--modelo`: Modelo a usar (1, 2 o 3) - **REQUERIDO** (modelos 4 y 5 usan main.py directamente)
+- `--modelo`: Modelo a usar (1, 2, 3, 4 o 5) - **REQUERIDO** (modelos 4 y 5 también pueden usar main.py directamente)
 - `--input_dir`: Directorio con imágenes (default: Inferencia/)
 - `--output_dir`: Directorio base de salida (default: Resultados_Inferencia/resultado_inferencia_modelo_X/)
 - `--modelos_dir`: Directorio donde están los modelos (default según modelo seleccionado)
@@ -762,7 +790,7 @@ Resultados_Inferencia/
     └── elliptic_c0.1/
 ```
 
-**Nota:** El script detecta automáticamente qué variantes están disponibles según los modelos entrenados encontrados en el directorio `models/` de cada modelo. Los modelos 4 y 5 actualmente se ejecutan directamente con `main.py`.
+**Nota:** El script detecta automáticamente qué variantes están disponibles según los modelos entrenados encontrados en el directorio `models/` de cada modelo.
 
 ## Ejecutar todos los modelos
 
@@ -792,7 +820,7 @@ python main.py --mode eval --model_path "models/stpm_resnet18_256.pt" --save_sam
 
 Los resultados se guardarán en las respectivas carpetas `outputs/` de cada modelo.
 
-**Nota:** Los modelos 4 y 5 evalúan sobre el dataset completo (carpetas `valid/normal/` y `valid/defectuoso/`), no sobre imágenes individuales. Para inferencia de una sola imagen, sería necesario agregar esa funcionalidad a los scripts `main.py`.
+**Nota:** Los modelos 4 y 5 pueden evaluar sobre el dataset completo o sobre imágenes individuales según el modo de ejecución.
 
 ## Modelo 4: FastFlow
 
@@ -965,4 +993,45 @@ Todos los métodos (1-5) comparten:
 - **Evaluación**: Con imágenes normales + defectuosas para calcular métricas
 
 Las métricas guardadas en `outputs/metrics_*.json` permiten comparar directamente el rendimiento de los 5 métodos.
+
+## Validación y Evaluación
+
+### Procesar imágenes de validación
+
+Antes de evaluar los modelos, procesa las imágenes de validación:
+
+```bash
+# Procesar sin reescalar (por defecto)
+python validacion.py
+
+# Procesar reescalado a 256x256
+python validacion.py --redimensionar --img_size 256
+
+# Generar ambas versiones
+python validacion.py --generar_ambas --img_size 256
+```
+
+El script:
+- Lee imágenes de las carpetas "sin fallas" y "fallas" desde `VALIDACION_INPUT_PATH`
+- Aplica correct_board.py (elimina bordes, corrige ángulo)
+- Aplica preprocesamiento de 3 canales
+- Guarda en `VALIDACION_OUTPUT_PATH` (sin reescalar) o `VALIDACION_OUTPUT_PATH_REDIMENSIONADO` (reescalado)
+
+### Evaluar todos los modelos
+
+```bash
+# Evaluar todos los modelos (usa dataset sin reescalar por defecto)
+python evaluar_todos_modelos.py --all
+
+# Evaluar con dataset reescalado
+python evaluar_todos_modelos.py --all --redimensionar
+
+# Evaluar modelos específicos
+python evaluar_todos_modelos.py --modelo 1 --modelo 2
+```
+
+**Resultados**:
+- Se guardan en `evaluaciones/modeloX/` o `evaluaciones/modeloX_256/` según corresponda
+- Incluye métricas (accuracy, precision, recall, F1-score), matrices de confusión y curvas ROC
+- Cada modelo genera sus propios archivos de resultados organizados por carpeta
 

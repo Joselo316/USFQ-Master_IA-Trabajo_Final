@@ -1,5 +1,5 @@
 """
-Script maestro para entrenar los 3 modelos de detección de anomalías.
+Script maestro para entrenar los 5 modelos de detección de anomalías.
 Permite entrenar todos los modelos a la vez o seleccionar cuáles entrenar.
 """
 
@@ -7,8 +7,11 @@ import argparse
 import subprocess
 import sys
 import time
+import os
 from pathlib import Path
 from datetime import datetime
+import torch
+import config
 
 # Rutas a los scripts de entrenamiento
 PROJECT_ROOT = Path(__file__).parent
@@ -19,19 +22,130 @@ TRAIN_MODEL4 = PROJECT_ROOT / "modelos" / "modelo4_fastflow" / "main.py"
 TRAIN_MODEL5 = PROJECT_ROOT / "modelos" / "modelo5_stpm" / "main.py"
 
 
+def verificar_gpu():
+    """Verifica que haya GPU disponible y muestra información."""
+    if not torch.cuda.is_available():
+        print("="*70)
+        print("ERROR: CUDA no está disponible.")
+        print("="*70)
+        print("Este script requiere una GPU compatible con CUDA para entrenar los modelos.")
+        print("Por favor, verifica que:")
+        print("  1. Tienes una GPU NVIDIA compatible")
+        print("  2. Tienes CUDA instalado correctamente")
+        print("  3. PyTorch está compilado con soporte CUDA")
+        print("="*70)
+        return False
+    
+    print("="*70)
+    print("VERIFICACIÓN DE GPU")
+    print("="*70)
+    print(f"GPU disponible: {torch.cuda.get_device_name(0)}")
+    print(f"Memoria GPU total: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
+    print(f"CUDA versión: {torch.version.cuda}")
+    print(f"Número de GPUs: {torch.cuda.device_count()}")
+    if torch.cuda.device_count() > 1:
+        print(f"ADVERTENCIA: Se detectaron {torch.cuda.device_count()} GPUs, pero se usará solo la GPU 0")
+    print("="*70)
+    return True
+
+
+def calcular_batch_size_optimo(memoria_gb: float, modelo: str) -> int:
+    """
+    Calcula un batch_size óptimo basado en la memoria GPU disponible.
+    
+    Args:
+        memoria_gb: Memoria GPU en GB
+        modelo: Nombre del modelo ('modelo1', 'modelo2', etc.)
+    
+    Returns:
+        Batch size recomendado
+    """
+    # Batch sizes base según modelo y memoria
+    if memoria_gb >= 24:  # GPU de alta gama (RTX 3090, A100, etc.)
+        batch_sizes = {
+            'modelo1': 128,
+            'modelo2': 64,
+            'modelo3': 64,
+            'modelo4': 32,
+            'modelo5': 32
+        }
+    elif memoria_gb >= 12:  # GPU media-alta (RTX 3080, RTX 4070, etc.)
+        batch_sizes = {
+            'modelo1': 64,
+            'modelo2': 32,
+            'modelo3': 32,
+            'modelo4': 16,
+            'modelo5': 16
+        }
+    elif memoria_gb >= 8:  # GPU media (RTX 3070, RTX 4060, etc.)
+        batch_sizes = {
+            'modelo1': 32,
+            'modelo2': 16,
+            'modelo3': 16,
+            'modelo4': 8,
+            'modelo5': 8
+        }
+    else:  # GPU baja (GTX 1660, RTX 3050, etc.)
+        batch_sizes = {
+            'modelo1': 16,
+            'modelo2': 8,
+            'modelo3': 8,
+            'modelo4': 4,
+            'modelo5': 4
+        }
+    
+    return batch_sizes.get(modelo, 32)
+
+
+def calcular_num_workers() -> int:
+    """Calcula número óptimo de workers para DataLoader."""
+    cpu_count = os.cpu_count() or 1
+    # Usar hasta 16 workers o el número de CPUs disponibles, lo que sea menor
+    # Esto evita saturar el sistema
+    return min(16, max(4, cpu_count // 2))
+
+
 def entrenar_modelo1(args):
     """Entrena el modelo 1: Autoencoder"""
     print("\n" + "="*70)
     print("ENTRENANDO MODELO 1: AUTOENCODER")
     print("="*70)
     
+    # Determinar ruta del dataset según si se reescala o no
+    # Si use_segmentation=True, NO se reescala. Si use_segmentation=False, SÍ se reescala.
+    # Pero si args.redimensionar está activo, forzar uso de dataset reescalado
+    usar_reescalado = args.redimensionar or (not args.use_segmentation)
+    
+    if args.data_dir is None:
+        data_dir = config.obtener_ruta_dataset(redimensionar=usar_reescalado)
+    else:
+        data_dir = args.data_dir
+    
+    # Determinar directorio de salida según si se usa dataset reescalado
+    if args.model1_output_dir:
+        output_dir = args.model1_output_dir
+    else:
+        base_dir = Path(TRAIN_MODEL1).parent
+        if usar_reescalado:
+            output_dir = str(base_dir / "models_256")
+        else:
+            output_dir = str(base_dir / "models")
+    
+    # Calcular batch_size específico para modelo 1
+    if args.batch_size is None and torch.cuda.is_available() and not args.forzar_cpu:
+        memoria_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        batch_size_modelo1 = calcular_batch_size_optimo(memoria_gb, 'modelo1')
+    else:
+        batch_size_modelo1 = args.batch_size or 32
+    
     cmd = [
         sys.executable,
         str(TRAIN_MODEL1),
-        "--data_dir", args.data_dir,
-        "--batch_size", str(args.batch_size),
+        "--data_dir", data_dir,
+        "--batch_size", str(batch_size_modelo1),
         "--epochs", str(args.epochs),
-        "--lr", str(args.lr)
+        "--lr", str(args.lr),
+        "--output_dir", output_dir
     ]
     
     if args.use_segmentation:
@@ -46,9 +160,6 @@ def entrenar_modelo1(args):
         cmd.extend(["--encoder_name", args.model1_encoder])
         if args.model1_freeze_encoder:
             cmd.append("--freeze_encoder")
-    
-    if args.model1_output_dir:
-        cmd.extend(["--output_dir", args.model1_output_dir])
     
     print(f"Comando: {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=PROJECT_ROOT)
@@ -66,18 +177,43 @@ def entrenar_modelo2(args):
         print("Por favor, crea el script train.py en modelos/modelo2_features/")
         return False
     
+    # Determinar ruta del dataset según si se reescala o no
+    # Si use_segmentation=True, NO se reescala. Si use_segmentation=False, SÍ se reescala.
+    # Pero si args.redimensionar está activo, forzar uso de dataset reescalado
+    usar_reescalado = args.redimensionar or (not args.use_segmentation)
+    
+    if args.data_dir is None:
+        data_dir = config.obtener_ruta_dataset(redimensionar=usar_reescalado)
+    else:
+        data_dir = args.data_dir
+    
+    # Determinar directorio de salida según si se usa dataset reescalado
+    if args.model2_output_dir:
+        output_dir = args.model2_output_dir
+    else:
+        base_dir = Path(TRAIN_MODEL2).parent
+        if usar_reescalado:
+            output_dir = str(base_dir / "models_256")
+        else:
+            output_dir = str(base_dir / "models")
+    
+    # Calcular batch_size específico para modelo 2
+    if args.batch_size is None and torch.cuda.is_available() and not args.forzar_cpu:
+        memoria_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        batch_size_modelo2 = calcular_batch_size_optimo(memoria_gb, 'modelo2')
+    else:
+        batch_size_modelo2 = args.batch_size or 32
+    
     cmd = [
         sys.executable,
         str(TRAIN_MODEL2),
-        "--data", args.data_dir,
-        "--batch_size", str(args.batch_size)
+        "--data", data_dir,
+        "--batch_size", str(batch_size_modelo2),
+        "--output_dir", output_dir
     ]
     
     if args.model2_backbone:
         cmd.extend(["--backbone", args.model2_backbone])
-    
-    if args.model2_output_dir:
-        cmd.extend(["--output_dir", args.model2_output_dir])
     
     # Por defecto NO usar patches (resize completo)
     if not args.use_segmentation:
@@ -103,11 +239,38 @@ def entrenar_modelo3(args):
         print("Por favor, crea el script train_all_variants.py en modelos/modelo3_transformer/")
         return False
     
+    # Modelo 3 usa parches, así que normalmente NO reescala
+    # Pero si args.redimensionar está activo, usar dataset reescalado
+    usar_reescalado = args.redimensionar
+    
+    if args.data_dir is None:
+        data_dir = config.obtener_ruta_dataset(redimensionar=usar_reescalado)
+    else:
+        data_dir = args.data_dir
+    
+    # Determinar directorio de salida según si se usa dataset reescalado
+    if args.model3_output_dir:
+        output_dir = args.model3_output_dir
+    else:
+        base_dir = Path(TRAIN_MODEL3).parent
+        if usar_reescalado:
+            output_dir = str(base_dir / "models_256")
+        else:
+            output_dir = str(base_dir / "models")
+    
+    # Calcular batch_size específico para modelo 3
+    if args.batch_size is None and torch.cuda.is_available() and not args.forzar_cpu:
+        memoria_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        batch_size_modelo3 = calcular_batch_size_optimo(memoria_gb, 'modelo3')
+    else:
+        batch_size_modelo3 = args.batch_size or 32
+    
     cmd = [
         sys.executable,
         str(TRAIN_MODEL3),
-        "--data_dir", args.data_dir,
-        "--batch_size", str(args.batch_size)
+        "--data_dir", data_dir,
+        "--batch_size", str(batch_size_modelo3),
+        "--output_dir", output_dir
     ]
     
     if args.model3_patch_size:
@@ -115,9 +278,6 @@ def entrenar_modelo3(args):
     
     if args.model3_overlap:
         cmd.extend(["--overlap", str(args.model3_overlap)])
-    
-    if args.model3_output_dir:
-        cmd.extend(["--output_dir", args.model3_output_dir])
     
     print(f"Comando: {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=PROJECT_ROOT)
@@ -135,17 +295,50 @@ def entrenar_modelo4(args):
         print("Por favor, crea el script main.py en modelos/modelo4_fastflow/")
         return False
     
+    # Modelo 4 siempre usa img_size, pero respetar flag --redimensionar
+    usar_reescalado = args.redimensionar
+    
+    if args.data_dir is None:
+        data_dir = config.obtener_ruta_dataset(redimensionar=usar_reescalado)
+    else:
+        data_dir = args.data_dir
+    
+    # Determinar directorio de salida según si se usa dataset reescalado
+    base_dir = Path(TRAIN_MODEL4).parent
+    if usar_reescalado:
+        models_dir = str(base_dir / "models_256")
+        outputs_dir = str(base_dir / "outputs_256")
+    else:
+        models_dir = str(base_dir / "models")
+        outputs_dir = str(base_dir / "outputs")
+    
+    if args.model4_output_dir:
+        outputs_dir = args.model4_output_dir
+    
+    # Calcular batch_size específico para modelo 4
+    if args.batch_size is None and torch.cuda.is_available() and not args.forzar_cpu:
+        memoria_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        batch_size_modelo4 = calcular_batch_size_optimo(memoria_gb, 'modelo4')
+    else:
+        batch_size_modelo4 = args.batch_size or 16
+    
     cmd = [
         sys.executable,
         str(TRAIN_MODEL4),
         "--mode", "train_eval",
-        "--data_dir", args.data_dir,
+        "--data_dir", data_dir,
         "--backbone", args.model4_backbone,
         "--img_size", str(args.img_size),
-        "--batch_size", str(args.batch_size),
+        "--batch_size", str(batch_size_modelo4),
         "--epochs", str(args.epochs),
-        "--lr", str(args.model4_lr)
+        "--lr", str(args.model4_lr),
+        "--output_dir", outputs_dir,
+        "--models_dir", models_dir
     ]
+    
+    # Agregar num_workers si está disponible
+    if args.num_workers is not None:
+        cmd.extend(["--num_workers", str(args.num_workers)])
     
     if args.model4_flow_steps:
         cmd.extend(["--flow_steps", str(args.model4_flow_steps)])
@@ -197,20 +390,46 @@ def entrenar_modelo5(args):
         print("Por favor, crea el script main.py en modelos/modelo5_stpm/")
         return False
     
+    # Modelo 5 siempre usa img_size, pero respetar flag --redimensionar
+    usar_reescalado = args.redimensionar
+    
+    if args.data_dir is None:
+        data_dir = config.obtener_ruta_dataset(redimensionar=usar_reescalado)
+    else:
+        data_dir = args.data_dir
+    
+    # Determinar directorio de salida según si se usa dataset reescalado
+    base_dir = Path(TRAIN_MODEL5).parent
+    if usar_reescalado:
+        models_dir = str(base_dir / "models_256")
+        outputs_dir = str(base_dir / "outputs_256")
+    else:
+        models_dir = str(base_dir / "models")
+        outputs_dir = str(base_dir / "outputs")
+    
+    if args.model5_output_dir:
+        outputs_dir = args.model5_output_dir
+    
+    # Calcular batch_size específico para modelo 5
+    if args.batch_size is None and torch.cuda.is_available() and not args.forzar_cpu:
+        memoria_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        batch_size_modelo5 = calcular_batch_size_optimo(memoria_gb, 'modelo5')
+    else:
+        batch_size_modelo5 = args.batch_size or 16
+    
     cmd = [
         sys.executable,
         str(TRAIN_MODEL5),
         "--mode", "train_eval",
-        "--data_dir", args.data_dir,
+        "--data_dir", data_dir,
         "--backbone", args.model5_backbone,
         "--img_size", str(args.img_size),
-        "--batch_size", str(args.batch_size),
+        "--batch_size", str(batch_size_modelo5),
         "--epochs", str(args.epochs),
-        "--lr", str(args.model5_lr)
+        "--lr", str(args.model5_lr),
+        "--output_dir", outputs_dir,
+        "--models_dir", models_dir
     ]
-    
-    if args.model5_output_dir:
-        cmd.extend(["--output_dir", args.model5_output_dir])
     
     print(f"Comando: {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=PROJECT_ROOT)
@@ -301,13 +520,30 @@ Ejemplos de uso:
         '--data_dir',
         type=str,
         default=None,
-        help='Directorio raíz de los datos (default: desde config.py)'
+        help='Directorio raíz de los datos (default: desde config.py, seleccionado automáticamente según --redimensionar)'
+    )
+    parser.add_argument(
+        '--redimensionar',
+        action='store_true',
+        default=False,
+        help='Usar dataset preprocesado y reescalado. Si está activo, crea carpetas models_256. Si no, usa dataset sin reescalar y crea carpetas models (default: False)'
     )
     parser.add_argument(
         '--batch_size',
         type=int,
-        default=32,
-        help='Tamaño de batch (default: 32)'
+        default=None,
+        help='Tamaño de batch (default: calculado automáticamente según GPU)'
+    )
+    parser.add_argument(
+        '--num_workers',
+        type=int,
+        default=None,
+        help='Número de workers para DataLoader (default: calculado automáticamente)'
+    )
+    parser.add_argument(
+        '--forzar_cpu',
+        action='store_true',
+        help='Forzar uso de CPU (NO recomendado, entrenamiento será muy lento)'
     )
     parser.add_argument(
         '--epochs',
@@ -519,6 +755,44 @@ Ejemplos de uso:
     
     args = parser.parse_args()
     
+    # Verificar GPU al inicio (a menos que se fuerce CPU)
+    if not args.forzar_cpu:
+        if not verificar_gpu():
+            print("\nERROR: No se puede continuar sin GPU.")
+            print("Si realmente quieres usar CPU (NO recomendado), usa --forzar_cpu")
+            return
+    else:
+        print("="*70)
+        print("ADVERTENCIA: Se está forzando el uso de CPU")
+        print("El entrenamiento será MUY LENTO. Se recomienda usar GPU.")
+        print("="*70)
+    
+    # Calcular parámetros óptimos si no se especificaron
+    batch_size_especificado = args.batch_size is not None
+    num_workers_especificado = args.num_workers is not None
+    
+    if torch.cuda.is_available() and not args.forzar_cpu:
+        memoria_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        
+        if not batch_size_especificado:
+            # No calcular aquí, se calculará por modelo en cada función
+            print(f"\nBatch size: Se calculará automáticamente por modelo (GPU: {memoria_gb:.1f} GB)")
+        else:
+            print(f"\nBatch size especificado: {args.batch_size}")
+        
+        if not num_workers_especificado:
+            args.num_workers = calcular_num_workers()
+            print(f"Num workers automático: {args.num_workers}")
+        else:
+            print(f"Num workers especificado: {args.num_workers}")
+    else:
+        if not batch_size_especificado:
+            args.batch_size = 8  # Batch size pequeño para CPU
+            print(f"\nBatch size CPU: {args.batch_size}")
+        if not num_workers_especificado:
+            args.num_workers = min(4, os.cpu_count() or 1)
+            print(f"Num workers CPU: {args.num_workers}")
+    
     # Determinar qué modelos entrenar
     # Prioridad: --modelo > flags individuales > --all
     if args.modelo:
@@ -595,15 +869,17 @@ Ejemplos de uso:
         print("  --all             Entrenar todos los modelos")
         return
     
-    # Obtener data_dir desde config si no se especifica
-    if args.data_dir is None:
-        import config
-        args.data_dir = config.DATASET_PATH
-    
     print("="*70)
     print("ENTRENAMIENTO DE MODELOS DE DETECCIÓN DE ANOMALÍAS")
     print("="*70)
-    print(f"Directorio de datos: {args.data_dir}")
+    if args.data_dir:
+        print(f"Directorio de datos (especificado): {args.data_dir}")
+    else:
+        usar_reescalado = args.redimensionar
+        ruta_auto = config.obtener_ruta_dataset(redimensionar=usar_reescalado)
+        print(f"Directorio de datos (automático): {ruta_auto}")
+        print(f"  - Usando dataset: {'REESCALADO' if usar_reescalado else 'NO REESCALADO'}")
+        print(f"  - Carpetas de salida: {'models_256' if usar_reescalado else 'models'}")
     print(f"Modelos a entrenar:")
     print(f"  - Modelo 1 (Autoencoder): {'Sí' if entrenar_modelo1_flag else 'No'}")
     print(f"  - Modelo 2 (Features): {'Sí' if entrenar_modelo2_flag else 'No'}")

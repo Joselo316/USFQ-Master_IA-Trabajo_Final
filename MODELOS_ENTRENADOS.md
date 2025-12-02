@@ -1,6 +1,6 @@
 # Modelos que se Entrenan en el Proyecto
 
-Este documento aclara qué modelos base se utilizan en cada uno de los tres modelos de detección de anomalías.
+Este documento aclara qué modelos base se utilizan en cada uno de los cinco modelos de detección de anomalías.
 
 ## Modelo 1: Autoencoder
 
@@ -57,5 +57,6 @@ Este documento aclara qué modelos base se utilizan en cada uno de los tres mode
 - Modelo 1: El autoencoder completo (o solo el decoder si usas transfer learning)
 - Modelo 2: La distribución estadística de features normales
 - Modelo 3: El clasificador k-NN con features normales
+
 
 

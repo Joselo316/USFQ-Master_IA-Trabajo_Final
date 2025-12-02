@@ -37,7 +37,7 @@ def procesar_imagen_inferencia(
         stride: Paso entre patches. Si None, se calcula según overlap_percent
         overlap_percent: Porcentaje de solapamiento (0.0-1.0)
         tamaño_imagen: Tamaño para redimensionar (por defecto: config.IMG_SIZE si usar_patches=False)
-        aplicar_preprocesamiento: Si True, aplica preprocesamiento de 3 canales
+        aplicar_preprocesamiento: Si True, aplica preprocesamiento de 3 canales. Si False, asume imagen ya preprocesada (RGB)
         usar_patches: Si False, redimensiona imagen completa sin generar patches
     
     Returns:
@@ -45,12 +45,22 @@ def procesar_imagen_inferencia(
     """
     import config
     
-    # Cargar imagen original para obtener tamaño
-    img_original = cv2.imread(ruta_imagen, cv2.IMREAD_GRAYSCALE)
-    if img_original is None:
-        raise ValueError(f"No se pudo cargar la imagen: {ruta_imagen}")
-    
-    tamaño_orig = img_original.shape[:2]  # (H, W)
+    # Cargar imagen para obtener tamaño original
+    # Si no se aplica preprocesamiento, cargar como RGB (ya preprocesada)
+    # Si se aplica preprocesamiento, cargar como escala de grises primero
+    if aplicar_preprocesamiento:
+        img_original = cv2.imread(ruta_imagen, cv2.IMREAD_GRAYSCALE)
+        if img_original is None:
+            raise ValueError(f"No se pudo cargar la imagen: {ruta_imagen}")
+        tamaño_orig = img_original.shape[:2]  # (H, W)
+    else:
+        # Cargar como RGB (imagen ya preprocesada)
+        img_original = cv2.imread(ruta_imagen, cv2.IMREAD_COLOR)
+        if img_original is None:
+            raise ValueError(f"No se pudo cargar la imagen: {ruta_imagen}")
+        if len(img_original.shape) != 3 or img_original.shape[2] != 3:
+            raise ValueError(f"Imagen debe tener 3 canales RGB (ya preprocesada), pero tiene forma: {img_original.shape}")
+        tamaño_orig = img_original.shape[:2]  # (H, W)
     
     # Si NO usar patches, redimensionar imagen completa
     if not usar_patches:
@@ -85,11 +95,22 @@ def procesar_imagen_inferencia(
             img_procesada = cv2.resize(img_procesada, (tamaño_imagen[1], tamaño_imagen[0]), 
                                       interpolation=cv2.INTER_LINEAR)
     else:
-        # Cargar sin preprocesamiento
-        img_procesada = img_original.astype(np.float32) / 255.0
+        # Cargar imagen ya preprocesada (3 canales RGB)
+        img_procesada = cv2.imread(ruta_imagen, cv2.IMREAD_COLOR)
+        if img_procesada is None:
+            raise ValueError(f"No se pudo cargar la imagen: {ruta_imagen}")
+        
+        # Verificar que tiene 3 canales
+        if len(img_procesada.shape) != 3 or img_procesada.shape[2] != 3:
+            raise ValueError(f"Imagen debe tener 3 canales RGB, pero tiene forma: {img_procesada.shape}")
+        
+        # Redimensionar si es necesario
         if tamaño_imagen is not None:
             img_procesada = cv2.resize(img_procesada, (tamaño_imagen[1], tamaño_imagen[0]), 
                                       interpolation=cv2.INTER_LINEAR)
+        
+        # Normalizar a [0, 1]
+        img_procesada = img_procesada.astype(np.float32) / 255.0
     
     # Calcular stride si no se especifica
     patch_h, patch_w = tamaño_patch

@@ -6,7 +6,7 @@
 2. Haz clic en el botón "+" en la esquina superior derecha
 3. Selecciona "New repository"
 4. Nombre del repositorio: `TesisMDP` (o el nombre que prefieras)
-5. Descripción: "Sistema de detección de anomalías en tableros laminados con tres modelos: Autoencoder, Features (PaDiM/PatchCore) y Vision Transformer"
+5. Descripción: "Sistema de detección de anomalías en tableros laminados con cinco modelos: Autoencoder, Features (PaDiM/PatchCore), Vision Transformer, FastFlow y STPM"
 6. Elige si será público o privado
 7. **NO** marques "Initialize this repository with a README" (ya tenemos uno)
 8. Haz clic en "Create repository"
@@ -20,7 +20,7 @@ Ejecuta los siguientes comandos en la terminal (desde la carpeta TesisMDP):
 git add .
 
 # Hacer el primer commit
-git commit -m "Initial commit: Sistema de detección de anomalías con tres modelos"
+git commit -m "Initial commit: Sistema de detección de anomalías con cinco modelos"
 
 # Añadir el repositorio remoto de GitHub (reemplaza TU_USUARIO con tu usuario de GitHub)
 git remote add origin https://github.com/TU_USUARIO/TesisMDP.git
@@ -75,5 +75,6 @@ git remote -v
 # Cambiar la URL del remoto
 git remote set-url origin https://github.com/TU_USUARIO/NUEVO_NOMBRE.git
 ```
+
 
 

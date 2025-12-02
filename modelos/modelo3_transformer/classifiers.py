@@ -188,8 +188,19 @@ class EllipticEnvelopeClassifier(AnomalyClassifier):
         if self.model is None:
             raise ValueError("Modelo no entrenado. Llama a fit() primero.")
         
-        # Normalizar features de la misma manera que en entrenamiento
-        features_normalized = self.scaler.transform(features)
+        # Verificar si el scaler existe (compatibilidad con modelos antiguos)
+        if not hasattr(self, 'scaler') or self.scaler is None:
+            # Si no hay scaler, intentar usar el modelo sin normalización
+            # Esto puede funcionar si el modelo fue entrenado sin normalización
+            warnings.warn(
+                "El modelo no tiene scaler. Usando features sin normalizar. "
+                "Esto puede indicar que el modelo fue entrenado con una versión anterior del código.",
+                UserWarning
+            )
+            features_normalized = features
+        else:
+            # Normalizar features de la misma manera que en entrenamiento
+            features_normalized = self.scaler.transform(features)
         
         # EllipticEnvelope retorna -1 (anomalía) o 1 (normal)
         # Usamos decision_function para scores continuos

@@ -191,6 +191,8 @@ def main():
                        help='Ruta al modelo entrenado (para evaluación)')
     parser.add_argument('--output_dir', type=str, default=None,
                        help='Directorio de salida (default: outputs/)')
+    parser.add_argument('--models_dir', type=str, default=None,
+                       help='Directorio para guardar modelos (default: models/)')
     parser.add_argument('--save_samples', action='store_true',
                        help='Guardar imágenes de ejemplo')
     parser.add_argument('--num_samples', type=int, default=10,
@@ -202,7 +204,7 @@ def main():
     output_dir = Path(args.output_dir) if args.output_dir else Path(__file__).parent / 'outputs'
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    models_dir = Path(__file__).parent / 'models'
+    models_dir = Path(args.models_dir) if args.models_dir else Path(__file__).parent / 'models'
     models_dir.mkdir(parents=True, exist_ok=True)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

@@ -333,10 +333,23 @@ def main():
     error_max = error_map.max()
     error_min = error_map.min()
     
-    # Detección de anomalías
-    condicion1 = error_max > (error_mean + error_std)
-    condicion2 = (error_mean - error_std) > error_min
-    is_anomaly = condicion1 or condicion2
+    # Detección de anomalías (criterio mejorado basado en percentiles)
+    error_percentil_95 = np.percentile(error_map, 95)
+    error_percentil_99 = np.percentile(error_map, 99)
+    error_sum = error_map.sum()
+    error_sum_esperado = error_mean * error_map.size
+    
+    # Criterio 1: Error máximo debe estar en percentil 99
+    condicion1 = error_max > error_percentil_99
+    
+    # Criterio 2: Suma total del error debe estar 1.5x por encima de la esperada
+    condicion2 = error_sum > (error_sum_esperado * 1.5)
+    
+    # Criterio 3: Media del error debe estar por encima del percentil 95
+    condicion3 = error_mean > error_percentil_95
+    
+    # Detectar anomalía si se cumplen al menos 2 de los 3 criterios
+    is_anomaly = (condicion1 + condicion2 + condicion3) >= 2
     
     print(f"\n{'='*70}")
     print(f"RESULTADO DE DETECCIÓN:")

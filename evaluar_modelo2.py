@@ -11,6 +11,7 @@ import pickle
 from pathlib import Path
 from datetime import datetime
 from typing import List, Tuple, Dict, Optional
+import numpy as np
 from collections import defaultdict
 
 import numpy as np
@@ -38,9 +39,10 @@ from modelos.modelo2_features.utils import (
 )
 
 # Rutas
+# Usar ruta de validación desde config si está disponible, sino usar etiquetadas como fallback
 ETIQUETADAS_DIR = PROJECT_ROOT / "etiquetadas"
 MODELOS_DIR = PROJECT_ROOT / "modelos" / "modelo2_features" / "models"
-OUTPUT_DIR = PROJECT_ROOT / "evaluaciones_modelo2"
+OUTPUT_DIR = PROJECT_ROOT / "evaluaciones" / "modelo2"
 
 
 def combinar_scores_capas(scores_por_capa: dict, metodo: str = 'suma') -> np.ndarray:
@@ -56,10 +58,14 @@ def combinar_scores_capas(scores_por_capa: dict, metodo: str = 'suma') -> np.nda
         raise ValueError(f"Metodo no soportado: {metodo}")
 
 
-def detectar_anomalia(mapa_anomalia: np.ndarray) -> Tuple[bool, Dict[str, float]]:
+def detectar_anomalia(mapa_anomalia: np.ndarray, umbral_global: float = None) -> Tuple[bool, Dict[str, float]]:
     """
     Detecta si hay anomalía basándose en el mapa de anomalía.
-    Usa criterio similar al modelo 1: estadísticas del mapa.
+    Usa un umbral global (si se proporciona) o calcula estadísticas básicas.
+    
+    Args:
+        mapa_anomalia: Mapa de scores de anomalía (distancia de Mahalanobis)
+        umbral_global: Umbral global para mapa_sum (si None, solo retorna estadísticas)
     
     Returns:
         (is_anomaly, estadisticas)
@@ -68,19 +74,30 @@ def detectar_anomalia(mapa_anomalia: np.ndarray) -> Tuple[bool, Dict[str, float]
     mapa_std = mapa_anomalia.std()
     mapa_max = mapa_anomalia.max()
     mapa_min = mapa_anomalia.min()
+    mapa_sum = mapa_anomalia.sum()
+    mapa_median = np.median(mapa_anomalia)
     
-    # Criterio: si el máximo está muy por encima de la media + std, es anomalía
-    # Similar al modelo 1 pero adaptado para scores de Mahalanobis
-    umbral = mapa_mean + 2 * mapa_std  # Más estricto que modelo 1
-    is_anomaly = mapa_max > umbral
+    # Calcular percentiles
+    mapa_percentil_95 = np.percentile(mapa_anomalia, 95)
+    mapa_percentil_99 = np.percentile(mapa_anomalia, 99)
+    
+    # Si hay umbral global, usarlo para clasificar
+    if umbral_global is not None:
+        is_anomaly = mapa_sum > umbral_global
+    else:
+        # Sin umbral global, retornar None (se calculará después)
+        is_anomaly = None
     
     estadisticas = {
         'mapa_mean': float(mapa_mean),
+        'mapa_median': float(mapa_median),
         'mapa_std': float(mapa_std),
         'mapa_max': float(mapa_max),
         'mapa_min': float(mapa_min),
-        'mapa_sum': float(mapa_anomalia.sum()),
-        'umbral': float(umbral)
+        'mapa_sum': float(mapa_sum),
+        'mapa_percentil_95': float(mapa_percentil_95),
+        'mapa_percentil_99': float(mapa_percentil_99),
+        'umbral_global': float(umbral_global) if umbral_global is not None else None
     }
     
     return is_anomaly, estadisticas
@@ -95,7 +112,9 @@ def inferir_imagen(
     overlap_percent: float = 0.3,
     batch_size: int = 32,
     combine_method: str = 'suma',
-    interpolation_method: str = 'gaussian'
+    interpolation_method: str = 'gaussian',
+    aplicar_preprocesamiento: bool = False,
+    umbral_global: float = None
 ) -> Tuple[bool, Dict[str, float], float]:
     """
     Realiza inferencia en una imagen y retorna la predicción y estadísticas.
@@ -107,12 +126,11 @@ def inferir_imagen(
     
     try:
         # Procesar imagen y generar patches
-        # Por defecto NO aplicar preprocesamiento (imágenes ya preprocesadas)
         patches, posiciones, tamaño_orig = procesar_imagen_inferencia(
             str(imagen_path),
             tamaño_patch=patch_size,
             overlap_percent=overlap_percent,
-            aplicar_preprocesamiento=False  # Imágenes ya preprocesadas
+            aplicar_preprocesamiento=aplicar_preprocesamiento
         )
         
         # Convertir lista de patches a array numpy
@@ -136,7 +154,7 @@ def inferir_imagen(
         )
         
         # Detectar anomalía
-        is_anomaly, estadisticas = detectar_anomalia(mapa_anomalia)
+        is_anomaly, estadisticas = detectar_anomalia(mapa_anomalia, umbral_global=umbral_global)
         estadisticas['num_parches'] = len(patches)
         tiempo = time.time() - inicio
         
@@ -171,30 +189,40 @@ def obtener_imagenes_etiquetadas(etiquetadas_dir: Path) -> Tuple[List[Path], Lis
     """
     imagenes = []
     etiquetas = []
+    extensiones = ['.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff']
+    extensiones_lower = [ext.lower() for ext in extensiones]
     
-    # Normal = 0
-    normal_dir = etiquetadas_dir / "normal"
-    if normal_dir.exists():
-        extensiones = ['.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff']
-        for ext in extensiones:
-            for img_path in normal_dir.glob(f"*{ext}"):
-                imagenes.append(img_path)
-                etiquetas.append(0)
-            for img_path in normal_dir.glob(f"*{ext.upper()}"):
-                imagenes.append(img_path)
-                etiquetas.append(0)
+    # Normal = 0 (buscar en 'sin fallas' o 'normal')
+    for nombre_carpeta in ['sin fallas', 'sin_fallas', 'normal']:
+        normal_dir = etiquetadas_dir / nombre_carpeta
+        if normal_dir.exists():
+            # Usar un set para evitar duplicados
+            imagenes_encontradas = set()
+            for archivo in normal_dir.iterdir():
+                if archivo.is_file():
+                    ext = archivo.suffix.lower()
+                    if ext in extensiones_lower:
+                        # Usar ruta absoluta para evitar duplicados en Windows
+                        if archivo.resolve() not in imagenes_encontradas:
+                            imagenes.append(archivo)
+                            etiquetas.append(0)
+                            imagenes_encontradas.add(archivo.resolve())
+            break  # Solo usar la primera carpeta encontrada
     
     # Fallas = 1
     fallas_dir = etiquetadas_dir / "fallas"
     if fallas_dir.exists():
-        extensiones = ['.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff']
-        for ext in extensiones:
-            for img_path in fallas_dir.glob(f"*{ext}"):
-                imagenes.append(img_path)
-                etiquetas.append(1)
-            for img_path in fallas_dir.glob(f"*{ext.upper()}"):
-                imagenes.append(img_path)
-                etiquetas.append(1)
+        # Usar un set para evitar duplicados
+        imagenes_encontradas = set()
+        for archivo in fallas_dir.iterdir():
+            if archivo.is_file():
+                ext = archivo.suffix.lower()
+                if ext in extensiones_lower:
+                    # Usar ruta absoluta para evitar duplicados en Windows
+                    if archivo.resolve() not in imagenes_encontradas:
+                        imagenes.append(archivo)
+                        etiquetas.append(1)
+                        imagenes_encontradas.add(archivo.resolve())
     
     return imagenes, etiquetas
 
@@ -292,7 +320,10 @@ def evaluar_modelo(
     combine_method: str = 'suma',
     interpolation_method: str = 'gaussian',
     output_dir: Path = None,
-    device: torch.device = None
+    device: torch.device = None,
+    progress_interval: int = 50,
+    aplicar_preprocesamiento: bool = False,
+    umbral_percentil: float = 95.0
 ) -> Dict:
     """
     Evalúa un modelo completo.
@@ -310,24 +341,24 @@ def evaluar_modelo(
     print(f"Backbone: {backbone}")
     print(f"Imágenes a evaluar: {len(imagenes)}")
     print(f"Dispositivo: {device}")
+    print(f"Preprocesamiento: {'SÍ (aplicar)' if aplicar_preprocesamiento else 'NO (imágenes ya preprocesadas)'}")
     
     # Cargar modelo y extractor
     print("Cargando modelo y extractor...")
     distribucion, extractor = cargar_modelo_y_extractor(modelo_path, backbone)
     print("Modelo y extractor cargados correctamente.")
     
-    # Realizar inferencias
-    print("\nRealizando inferencias...")
-    predicciones = []
+    # Realizar inferencias (primera pasada: calcular todos los scores)
+    print("\nRealizando inferencias (primera pasada: calculando scores)...")
     scores = []  # Suma del mapa como score
     estadisticas_imagenes = []
     tiempos = []
     
     for idx, imagen_path in enumerate(imagenes, 1):
-        if idx % 50 == 0:
+        if idx % progress_interval == 0:
             print(f"  Procesando {idx}/{len(imagenes)}...")
         
-        is_anomaly, stats, tiempo = inferir_imagen(
+        _, stats, tiempo = inferir_imagen(
             imagen_path,
             distribucion,
             extractor,
@@ -336,19 +367,79 @@ def evaluar_modelo(
             overlap_percent,
             batch_size,
             combine_method,
-            interpolation_method
+            interpolation_method,
+            aplicar_preprocesamiento,
+            umbral_global=None
         )
         
-        predicciones.append(1 if is_anomaly else 0)
         scores.append(stats.get('mapa_sum', 0.0))
         estadisticas_imagenes.append({
             'imagen': imagen_path.name,
             'etiqueta_real': int(etiquetas_reales[idx-1]),
-            'prediccion': int(is_anomaly),
             'estadisticas': stats,
             'tiempo': tiempo
         })
         tiempos.append(tiempo)
+    
+    # Calcular umbral adaptativo basado en la distribución de scores
+    scores_array = np.array(scores)
+    
+    # Si hay imágenes normales (etiqueta 0), usar su distribución para el umbral
+    indices_normales = [i for i, label in enumerate(etiquetas_reales) if label == 0]
+    
+    if len(indices_normales) > 0:
+        scores_normales = scores_array[indices_normales]
+        # Usar percentil de imágenes normales como umbral base
+        umbral_base = np.percentile(scores_normales, umbral_percentil)
+        # Ajustar umbral: usar percentil global si es más alto
+        umbral_global = max(umbral_base, np.percentile(scores_array, umbral_percentil))
+        print(f"\nUmbral adaptativo calculado (percentil {umbral_percentil}%):")
+        print(f"  Score medio (normales): {np.mean(scores_normales):.6f}")
+        print(f"  Percentil {umbral_percentil}% (normales): {umbral_base:.6f}")
+        print(f"  Percentil {umbral_percentil}% (todas): {np.percentile(scores_array, umbral_percentil):.6f}")
+        print(f"  Umbral final: {umbral_global:.6f}")
+    else:
+        # Si no hay imágenes normales etiquetadas, usar percentil global
+        umbral_global = np.percentile(scores_array, umbral_percentil)
+        print(f"\nUmbral adaptativo calculado (sin imágenes normales etiquetadas, percentil {umbral_percentil}%):")
+        print(f"  Percentil {umbral_percentil}% (todas): {umbral_global:.6f}")
+    
+    # Segunda pasada: clasificar con el umbral global
+    print("\nClasificando imágenes con umbral adaptativo...")
+    print(f"  Umbral global: {umbral_global:.6f}")
+    print(f"  Rango de scores: min={scores_array.min():.6f}, max={scores_array.max():.6f}, media={scores_array.mean():.6f}")
+    
+    predicciones = []
+    ejemplos_clasificacion = []  # Guardar algunos ejemplos para mostrar
+    
+    for idx, (imagen_path, stats) in enumerate(zip(imagenes, estadisticas_imagenes)):
+        mapa_sum = stats['estadisticas']['mapa_sum']
+        etiqueta_real = stats['etiqueta_real']
+        is_anomaly = mapa_sum > umbral_global
+        prediccion = 1 if is_anomaly else 0
+        
+        predicciones.append(prediccion)
+        estadisticas_imagenes[idx]['prediccion'] = prediccion
+        estadisticas_imagenes[idx]['estadisticas']['umbral_global'] = float(umbral_global)
+        
+        # Guardar algunos ejemplos para mostrar
+        if len(ejemplos_clasificacion) < 5:
+            ejemplos_clasificacion.append({
+                'imagen': imagen_path.name,
+                'mapa_sum': mapa_sum,
+                'umbral': umbral_global,
+                'etiqueta_real': 'Normal' if etiqueta_real == 0 else 'Falla',
+                'prediccion': 'Normal' if prediccion == 0 else 'Falla',
+                'correcto': '✅' if etiqueta_real == prediccion else '❌'
+            })
+    
+    # Mostrar ejemplos de clasificación
+    print(f"\nEjemplos de clasificación (primeras 5 imágenes):")
+    print(f"{'Imagen':<30} {'Score':<12} {'Umbral':<12} {'Real':<10} {'Predicción':<12} {'Resultado'}")
+    print("-" * 90)
+    for ej in ejemplos_clasificacion:
+        print(f"{ej['imagen'][:28]:<30} {ej['mapa_sum']:>10.2f}  {ej['umbral']:>10.2f}  "
+              f"{ej['etiqueta_real']:<10} {ej['prediccion']:<12} {ej['correcto']}")
     
     # Calcular métricas
     print("\nCalculando métricas...")
@@ -472,7 +563,7 @@ Calcula métricas: accuracy, precision, recall, F1-score, specificity, confusion
         '--etiquetadas_dir',
         type=str,
         default=None,
-        help='Directorio con imágenes etiquetadas (default: etiquetadas/)'
+        help='Directorio con imágenes procesadas de validación (default: desde config.VALIDACION_OUTPUT_PATH o etiquetadas/)'
     )
     parser.add_argument(
         '--modelos_dir',
@@ -520,13 +611,61 @@ Calcula métricas: accuracy, precision, recall, F1-score, specificity, confusion
         choices=['gaussian', 'max_pooling'],
         help='Método de interpolación para reconstruir mapa (default: gaussian)'
     )
+    parser.add_argument(
+        '--progress_interval',
+        type=int,
+        default=50,
+        help='Intervalo para mostrar progreso (cada N imágenes procesadas, default: 50)'
+    )
+    parser.add_argument(
+        '--aplicar_preprocesamiento',
+        action='store_true',
+        help='Aplicar preprocesamiento de 3 canales (default: False, asume imágenes ya preprocesadas)'
+    )
+    parser.add_argument(
+        '--umbral_percentil',
+        type=float,
+        default=95.0,
+        help='Percentil para calcular umbral adaptativo basado en distribución de scores (default: 95.0). Valores más altos = menos sensibles, más bajos = más sensibles.'
+    )
     
     args = parser.parse_args()
     
     # Determinar directorios
-    etiquetadas_dir = Path(args.etiquetadas_dir) if args.etiquetadas_dir else ETIQUETADAS_DIR
-    modelos_dir = Path(args.modelos_dir) if args.modelos_dir else MODELOS_DIR
-    output_dir = Path(args.output_dir) if args.output_dir else OUTPUT_DIR
+    # Priorizar: argumento > config según --redimensionar > ETIQUETADAS_DIR
+    if args.etiquetadas_dir:
+        etiquetadas_dir = Path(args.etiquetadas_dir)
+    else:
+        # Usar función de config para obtener ruta correcta según si se reescala o no
+        ruta_validacion = config.obtener_ruta_validacion(redimensionar=args.redimensionar)
+        if ruta_validacion:
+            etiquetadas_dir = Path(ruta_validacion)
+            if not etiquetadas_dir.exists():
+                print(f"ADVERTENCIA: La ruta de validación no existe: {etiquetadas_dir}")
+                print(f"  Usando fallback: {ETIQUETADAS_DIR}")
+                etiquetadas_dir = ETIQUETADAS_DIR
+        else:
+            etiquetadas_dir = ETIQUETADAS_DIR
+    
+    # Determinar directorio de modelos según si se reescala o no
+    if args.modelos_dir:
+        modelos_dir = Path(args.modelos_dir)
+    else:
+        base_models_dir = PROJECT_ROOT / "modelos" / "modelo2_features"
+        if args.redimensionar:
+            modelos_dir = base_models_dir / "models_256"
+        else:
+            modelos_dir = base_models_dir / "models"
+    
+    # Determinar directorio de salida según si se reescala o no
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+    else:
+        base_output_dir = PROJECT_ROOT / "evaluaciones"
+        if args.redimensionar:
+            output_dir = base_output_dir / "modelo2_256"
+        else:
+            output_dir = base_output_dir / "modelo2"
     
     # Validar directorios
     if not etiquetadas_dir.exists():
@@ -582,7 +721,10 @@ Calcula métricas: accuracy, precision, recall, F1-score, specificity, confusion
             args.combine_method,
             args.interpolation_method,
             output_dir,
-            device
+            device,
+            args.progress_interval,
+            args.aplicar_preprocesamiento,
+            args.umbral_percentil
         )
         todas_metricas[variante['nombre']] = metricas
     

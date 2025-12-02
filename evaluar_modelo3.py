@@ -37,15 +37,20 @@ from modelos.modelo3_transformer.utils import (
 from modelos.modelo3_transformer.classifiers import AnomalyClassifier, KNNClassifier
 
 # Rutas
+# Usar ruta de validación desde config si está disponible, sino usar etiquetadas como fallback
 ETIQUETADAS_DIR = PROJECT_ROOT / "etiquetadas"
 MODELOS_DIR = PROJECT_ROOT / "modelos" / "modelo3_transformer" / "models"
-OUTPUT_DIR = PROJECT_ROOT / "evaluaciones_modelo3"
+OUTPUT_DIR = PROJECT_ROOT / "evaluaciones" / "modelo3"
 
 
-def detectar_anomalia(mapa_anomalia: np.ndarray, percentil: float = 95.0) -> Tuple[bool, Dict[str, float]]:
+def detectar_anomalia(mapa_anomalia: np.ndarray, umbral_global: float = None) -> Tuple[bool, Dict[str, float]]:
     """
     Detecta si hay anomalía basándose en el mapa de anomalía.
-    Usa umbral basado en percentil (similar a main.py).
+    Usa un umbral global (si se proporciona) o calcula estadísticas básicas.
+    
+    Args:
+        mapa_anomalia: Mapa de scores de anomalía
+        umbral_global: Umbral global para mapa_sum (si None, solo retorna estadísticas)
     
     Returns:
         (is_anomaly, estadisticas)
@@ -54,19 +59,30 @@ def detectar_anomalia(mapa_anomalia: np.ndarray, percentil: float = 95.0) -> Tup
     mapa_std = mapa_anomalia.std()
     mapa_max = mapa_anomalia.max()
     mapa_min = mapa_anomalia.min()
+    mapa_sum = mapa_anomalia.sum()
+    mapa_median = np.median(mapa_anomalia)
     
-    # Usar percentil como umbral (igual que main.py)
-    umbral = np.percentile(mapa_anomalia, percentil)
-    is_anomaly = mapa_max > umbral
+    # Calcular percentiles
+    mapa_percentil_95 = np.percentile(mapa_anomalia, 95)
+    mapa_percentil_99 = np.percentile(mapa_anomalia, 99)
+    
+    # Si hay umbral global, usarlo para clasificar
+    if umbral_global is not None:
+        is_anomaly = mapa_sum > umbral_global
+    else:
+        # Sin umbral global, retornar None (se calculará después)
+        is_anomaly = None
     
     estadisticas = {
         'mapa_mean': float(mapa_mean),
+        'mapa_median': float(mapa_median),
         'mapa_std': float(mapa_std),
         'mapa_max': float(mapa_max),
         'mapa_min': float(mapa_min),
-        'mapa_sum': float(mapa_anomalia.sum()),
-        'umbral': float(umbral),
-        'percentil': float(percentil)
+        'mapa_sum': float(mapa_sum),
+        'mapa_percentil_95': float(mapa_percentil_95),
+        'mapa_percentil_99': float(mapa_percentil_99),
+        'umbral_global': float(umbral_global) if umbral_global is not None else None
     }
     
     return is_anomaly, estadisticas
@@ -79,7 +95,7 @@ def inferir_imagen(
     patch_size: int = 224,
     overlap: float = 0.3,
     batch_size: int = 32,
-    percentil: float = 95.0
+    umbral_global: float = None
 ) -> Tuple[bool, Dict[str, float], float]:
     """
     Realiza inferencia en una imagen y retorna la predicción y estadísticas.
@@ -109,6 +125,13 @@ def inferir_imagen(
         # Compatibilidad: puede tener 'classifier' (nuevo) o 'knn_model' (antiguo)
         if 'classifier' in modelo_data:
             classifier = modelo_data['classifier']
+            # Verificar si es EllipticEnvelopeClassifier y tiene scaler
+            from modelos.modelo3_transformer.classifiers import EllipticEnvelopeClassifier
+            if isinstance(classifier, EllipticEnvelopeClassifier):
+                if not hasattr(classifier, 'scaler') or classifier.scaler is None:
+                    # El scaler no existe - el método predict_scores manejará esto
+                    # usando las features sin normalizar
+                    pass
         else:
             # Código antiguo: crear wrapper para knn_model
             knn_model = modelo_data['knn_model']
@@ -119,25 +142,45 @@ def inferir_imagen(
         scores = classifier.predict_scores(features)
         distancias_promedio = scores  # Para compatibilidad con código existente
         
-        # Generar mapa de anomalía
-        mapa_anomalia, mapa_binario, umbral_final = generar_mapa_anomalia(
-            tamaño_orig,
-            posiciones,
-            distancias_promedio,
-            patch_size,
-            umbral=None  # Usar percentil automático
-        )
+        # Generar mapa de anomalía (sin normalizar para poder comparar entre imágenes)
+        # Primero crear el mapa sin normalizar
+        h, w = tamaño_orig
+        mapa_anomalia_raw = np.zeros((h, w), dtype=np.float32)
+        contador = np.zeros((h, w), dtype=np.int32)
         
-        # Ajustar umbral según percentil
-        umbral_ajustado = np.percentile(mapa_anomalia, percentil)
-        mapa_binario_ajustado = (mapa_anomalia > umbral_ajustado).astype(np.uint8) * 255
+        # Asignar valores de distancia a cada posición
+        for (y, x), dist in zip(posiciones, distancias_promedio):
+            y_end = min(y + patch_size, h)
+            x_end = min(x + patch_size, w)
+            mapa_anomalia_raw[y:y_end, x:x_end] += dist
+            contador[y:y_end, x:x_end] += 1
         
-        # Detectar anomalía
-        is_anomaly, estadisticas = detectar_anomalia(mapa_anomalia, percentil)
+        # Promediar donde hay solapamiento
+        mask = contador > 0
+        mapa_anomalia_raw[mask] /= contador[mask]
+        
+        # Guardar estadísticas del mapa sin normalizar (para comparación entre imágenes)
+        mapa_sum = mapa_anomalia_raw.sum()
+        mapa_mean = mapa_anomalia_raw.mean()
+        mapa_max = mapa_anomalia_raw.max()
+        mapa_median = np.median(mapa_anomalia_raw)
+        mapa_percentil_95 = np.percentile(mapa_anomalia_raw, 95)
+        
+        # También generar el mapa normalizado para estadísticas adicionales
+        mapa_anomalia_normalized = mapa_anomalia_raw.copy()
+        if mapa_anomalia_normalized.max() > mapa_anomalia_normalized.min():
+            mapa_anomalia_normalized = (mapa_anomalia_normalized - mapa_anomalia_normalized.min()) / (mapa_anomalia_normalized.max() - mapa_anomalia_normalized.min())
+        
+        # Detectar anomalía usando el mapa sin normalizar
+        is_anomaly, estadisticas = detectar_anomalia(mapa_anomalia_raw, umbral_global=umbral_global)
         estadisticas['num_parches'] = len(parches)
         estadisticas['distancias_mean'] = float(distancias_promedio.mean())
         estadisticas['distancias_max'] = float(distancias_promedio.max())
-        estadisticas['umbral_final'] = float(umbral_ajustado)
+        estadisticas['distancias_median'] = float(np.median(distancias_promedio))
+        estadisticas['mapa_mean'] = float(mapa_mean)
+        estadisticas['mapa_median'] = float(mapa_median)
+        estadisticas['mapa_max'] = float(mapa_max)
+        estadisticas['mapa_percentil_95'] = float(mapa_percentil_95)
         tiempo = time.time() - inicio
         
         return is_anomaly, estadisticas, tiempo
@@ -185,30 +228,40 @@ def obtener_imagenes_etiquetadas(etiquetadas_dir: Path) -> Tuple[List[Path], Lis
     """
     imagenes = []
     etiquetas = []
+    extensiones = ['.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff']
+    extensiones_lower = [ext.lower() for ext in extensiones]
     
-    # Normal = 0
-    normal_dir = etiquetadas_dir / "normal"
-    if normal_dir.exists():
-        extensiones = ['.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff']
-        for ext in extensiones:
-            for img_path in normal_dir.glob(f"*{ext}"):
-                imagenes.append(img_path)
-                etiquetas.append(0)
-            for img_path in normal_dir.glob(f"*{ext.upper()}"):
-                imagenes.append(img_path)
-                etiquetas.append(0)
+    # Normal = 0 (buscar en 'sin fallas' o 'normal')
+    for nombre_carpeta in ['sin fallas', 'sin_fallas', 'normal']:
+        normal_dir = etiquetadas_dir / nombre_carpeta
+        if normal_dir.exists():
+            # Usar un set para evitar duplicados
+            imagenes_encontradas = set()
+            for archivo in normal_dir.iterdir():
+                if archivo.is_file():
+                    ext = archivo.suffix.lower()
+                    if ext in extensiones_lower:
+                        # Usar ruta absoluta para evitar duplicados en Windows
+                        if archivo.resolve() not in imagenes_encontradas:
+                            imagenes.append(archivo)
+                            etiquetas.append(0)
+                            imagenes_encontradas.add(archivo.resolve())
+            break  # Solo usar la primera carpeta encontrada
     
     # Fallas = 1
     fallas_dir = etiquetadas_dir / "fallas"
     if fallas_dir.exists():
-        extensiones = ['.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff']
-        for ext in extensiones:
-            for img_path in fallas_dir.glob(f"*{ext}"):
-                imagenes.append(img_path)
-                etiquetas.append(1)
-            for img_path in fallas_dir.glob(f"*{ext.upper()}"):
-                imagenes.append(img_path)
-                etiquetas.append(1)
+        # Usar un set para evitar duplicados
+        imagenes_encontradas = set()
+        for archivo in fallas_dir.iterdir():
+            if archivo.is_file():
+                ext = archivo.suffix.lower()
+                if ext in extensiones_lower:
+                    # Usar ruta absoluta para evitar duplicados en Windows
+                    if archivo.resolve() not in imagenes_encontradas:
+                        imagenes.append(archivo)
+                        etiquetas.append(1)
+                        imagenes_encontradas.add(archivo.resolve())
     
     return imagenes, etiquetas
 
@@ -303,9 +356,10 @@ def evaluar_modelo(
     patch_size: int = 224,
     overlap: float = 0.3,
     batch_size: int = 32,
-    percentil: float = 95.0,
+    umbral_percentil: float = 95.0,
     output_dir: Path = None,
-    device: torch.device = None
+    device: torch.device = None,
+    progress_interval: int = 50
 ) -> Dict:
     """
     Evalúa un modelo completo.
@@ -337,37 +391,103 @@ def evaluar_modelo(
         if hasattr(modelo_data['classifier'].model, 'n_neighbors'):
             print(f"  k-NN: {modelo_data['classifier'].model.n_neighbors} vecinos")
     
-    # Realizar inferencias
-    print("\nRealizando inferencias...")
-    predicciones = []
+    # Realizar inferencias (primera pasada: calcular todos los scores)
+    print("\nRealizando inferencias (primera pasada: calculando scores)...")
     scores = []  # Suma del mapa como score
     estadisticas_imagenes = []
     tiempos = []
     
     for idx, imagen_path in enumerate(imagenes, 1):
-        if idx % 50 == 0:
+        if idx % progress_interval == 0:
             print(f"  Procesando {idx}/{len(imagenes)}...")
         
-        is_anomaly, stats, tiempo = inferir_imagen(
+        _, stats, tiempo = inferir_imagen(
             imagen_path,
             modelo_data,
             extractor,
             patch_size,
             overlap,
             batch_size,
-            percentil
+            umbral_global=None
         )
         
-        predicciones.append(1 if is_anomaly else 0)
         scores.append(stats.get('mapa_sum', 0.0))
         estadisticas_imagenes.append({
             'imagen': imagen_path.name,
             'etiqueta_real': int(etiquetas_reales[idx-1]),
-            'prediccion': int(is_anomaly),
             'estadisticas': stats,
             'tiempo': tiempo
         })
         tiempos.append(tiempo)
+    
+    # Calcular umbral adaptativo basado en la distribución de scores
+    scores_array = np.array(scores)
+    
+    # Verificar que hay variabilidad en los scores
+    if scores_array.max() == scores_array.min():
+        print("ADVERTENCIA: Todos los scores son iguales. Esto puede indicar un problema con el modelo o los datos.")
+        print(f"  Score único: {scores_array[0]:.6f}")
+        # Usar un umbral ligeramente por encima del valor único
+        umbral_global = scores_array[0] * 1.01
+        print(f"  Usando umbral: {umbral_global:.6f}")
+    else:
+        # Si hay imágenes normales (etiqueta 0), usar su distribución para el umbral
+        indices_normales = [i for i, label in enumerate(etiquetas_reales) if label == 0]
+        
+        if len(indices_normales) > 0:
+            scores_normales = scores_array[indices_normales]
+            # Usar percentil de imágenes normales como umbral base
+            umbral_base = np.percentile(scores_normales, umbral_percentil)
+            # Ajustar umbral: usar percentil global si es más alto
+            umbral_global = max(umbral_base, np.percentile(scores_array, umbral_percentil))
+            print(f"\nUmbral adaptativo calculado (percentil {umbral_percentil}%):")
+            print(f"  Score medio (normales): {np.mean(scores_normales):.6f}")
+            print(f"  Score medio (fallas): {np.mean(scores_array[[i for i, label in enumerate(etiquetas_reales) if label == 1]]):.6f}")
+            print(f"  Percentil {umbral_percentil}% (normales): {umbral_base:.6f}")
+            print(f"  Percentil {umbral_percentil}% (todas): {np.percentile(scores_array, umbral_percentil):.6f}")
+            print(f"  Umbral final: {umbral_global:.6f}")
+        else:
+            # Si no hay imágenes normales etiquetadas, usar percentil global
+            umbral_global = np.percentile(scores_array, umbral_percentil)
+            print(f"\nUmbral adaptativo calculado (sin imágenes normales etiquetadas, percentil {umbral_percentil}%):")
+            print(f"  Percentil {umbral_percentil}% (todas): {umbral_global:.6f}")
+    
+    # Segunda pasada: clasificar con el umbral global
+    print("\nClasificando imágenes con umbral adaptativo...")
+    print(f"  Umbral global: {umbral_global:.6f}")
+    print(f"  Rango de scores: min={scores_array.min():.6f}, max={scores_array.max():.6f}, media={scores_array.mean():.6f}")
+    
+    predicciones = []
+    ejemplos_clasificacion = []  # Guardar algunos ejemplos para mostrar
+    
+    for idx, (imagen_path, stats) in enumerate(zip(imagenes, estadisticas_imagenes)):
+        mapa_sum = stats['estadisticas']['mapa_sum']
+        etiqueta_real = stats['etiqueta_real']
+        is_anomaly = mapa_sum > umbral_global
+        prediccion = 1 if is_anomaly else 0
+        
+        predicciones.append(prediccion)
+        estadisticas_imagenes[idx]['prediccion'] = prediccion
+        estadisticas_imagenes[idx]['estadisticas']['umbral_global'] = float(umbral_global)
+        
+        # Guardar algunos ejemplos para mostrar
+        if len(ejemplos_clasificacion) < 5:
+            ejemplos_clasificacion.append({
+                'imagen': imagen_path.name,
+                'mapa_sum': mapa_sum,
+                'umbral': umbral_global,
+                'etiqueta_real': 'Normal' if etiqueta_real == 0 else 'Falla',
+                'prediccion': 'Normal' if prediccion == 0 else 'Falla',
+                'correcto': '✅' if etiqueta_real == prediccion else '❌'
+            })
+    
+    # Mostrar ejemplos de clasificación
+    print(f"\nEjemplos de clasificación (primeras 5 imágenes):")
+    print(f"{'Imagen':<30} {'Score':<12} {'Umbral':<12} {'Real':<10} {'Predicción':<12} {'Resultado'}")
+    print("-" * 90)
+    for ej in ejemplos_clasificacion:
+        print(f"{ej['imagen'][:28]:<30} {ej['mapa_sum']:>10.2f}  {ej['umbral']:>10.2f}  "
+              f"{ej['etiqueta_real']:<10} {ej['prediccion']:<12} {ej['correcto']}")
     
     # Calcular métricas
     print("\nCalculando métricas...")
@@ -518,7 +638,7 @@ Calcula métricas: accuracy, precision, recall, F1-score, specificity, confusion
         '--etiquetadas_dir',
         type=str,
         default=None,
-        help='Directorio con imágenes etiquetadas (default: etiquetadas/)'
+        help='Directorio con imágenes procesadas de validación (default: desde config.VALIDACION_OUTPUT_PATH o etiquetadas/)'
     )
     parser.add_argument(
         '--modelos_dir',
@@ -551,10 +671,10 @@ Calcula métricas: accuracy, precision, recall, F1-score, specificity, confusion
         help='Tamaño de batch para ViT (default: 32)'
     )
     parser.add_argument(
-        '--percentil',
+        '--umbral_percentil',
         type=float,
         default=95.0,
-        help='Percentil para calcular umbral automático (default: 95.0)'
+        help='Percentil para calcular umbral adaptativo basado en distribución de scores (default: 95.0). Valores más altos = menos sensibles, más bajos = más sensibles.'
     )
     parser.add_argument(
         '--model_name',
@@ -562,13 +682,50 @@ Calcula métricas: accuracy, precision, recall, F1-score, specificity, confusion
         default='google/vit-base-patch16-224',
         help='Nombre del modelo ViT preentrenado (default: google/vit-base-patch16-224)'
     )
+    parser.add_argument(
+        '--progress_interval',
+        type=int,
+        default=50,
+        help='Intervalo para mostrar progreso (cada N imágenes procesadas, default: 50)'
+    )
     
     args = parser.parse_args()
     
     # Determinar directorios
-    etiquetadas_dir = Path(args.etiquetadas_dir) if args.etiquetadas_dir else ETIQUETADAS_DIR
-    modelos_dir = Path(args.modelos_dir) if args.modelos_dir else MODELOS_DIR
-    output_dir = Path(args.output_dir) if args.output_dir else OUTPUT_DIR
+    # Priorizar: argumento > config según --redimensionar > ETIQUETADAS_DIR
+    if args.etiquetadas_dir:
+        etiquetadas_dir = Path(args.etiquetadas_dir)
+    else:
+        # Usar función de config para obtener ruta correcta según si se reescala o no
+        ruta_validacion = config.obtener_ruta_validacion(redimensionar=args.redimensionar)
+        if ruta_validacion:
+            etiquetadas_dir = Path(ruta_validacion)
+            if not etiquetadas_dir.exists():
+                print(f"ADVERTENCIA: La ruta de validación no existe: {etiquetadas_dir}")
+                print(f"  Usando fallback: {ETIQUETADAS_DIR}")
+                etiquetadas_dir = ETIQUETADAS_DIR
+        else:
+            etiquetadas_dir = ETIQUETADAS_DIR
+    
+    # Determinar directorio de modelos según si se reescala o no
+    if args.modelos_dir:
+        modelos_dir = Path(args.modelos_dir)
+    else:
+        base_models_dir = PROJECT_ROOT / "modelos" / "modelo3_transformer"
+        if args.redimensionar:
+            modelos_dir = base_models_dir / "models_256"
+        else:
+            modelos_dir = base_models_dir / "models"
+    
+    # Determinar directorio de salida según si se reescala o no
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+    else:
+        base_output_dir = PROJECT_ROOT / "evaluaciones"
+        if args.redimensionar:
+            output_dir = base_output_dir / "modelo3_256"
+        else:
+            output_dir = base_output_dir / "modelo3"
     
     # Validar directorios
     if not etiquetadas_dir.exists():
@@ -621,9 +778,10 @@ Calcula métricas: accuracy, precision, recall, F1-score, specificity, confusion
             args.patch_size,
             args.overlap,
             args.batch_size,
-            args.percentil,
+            args.umbral_percentil,
             output_dir,
-            device
+            device,
+            args.progress_interval
         )
         todas_metricas[variante['nombre']] = metricas
     
