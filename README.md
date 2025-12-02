@@ -723,13 +723,23 @@ python inferir_todas_imagenes.py --modelo 2
 # Modelo 3 (Transformer)
 python inferir_todas_imagenes.py --modelo 3
 
-# Modelo 4 (FastFlow) - Nota: Actualmente requiere ejecutar main.py directamente
-cd modelos/modelo4_fastflow
-python main.py --mode eval --model_path models/fastflow_resnet18_256.pt
+# Modelo 4 (FastFlow)
+python inferir_todas_imagenes.py --modelo 4
 
-# Modelo 5 (STPM) - Nota: Actualmente requiere ejecutar main.py directamente
+# Modelo 5 (STPM)
+python inferir_todas_imagenes.py --modelo 5
+```
+
+**Nota alternativa para modelos 4 y 5:** También puedes usar `main.py` directamente:
+
+```bash
+# Modelo 4 (FastFlow) - Evaluación sobre dataset completo
+cd modelos/modelo4_fastflow
+python main.py --mode eval --model_path models/fastflow_resnet18_256.pt --save_samples
+
+# Modelo 5 (STPM) - Evaluación sobre dataset completo
 cd modelos/modelo5_stpm
-python main.py --mode eval --model_path models/stpm_resnet18_256.pt
+python main.py --mode eval --model_path models/stpm_resnet18_256.pt --save_samples
 ```
 
 Este script:
@@ -739,7 +749,7 @@ Este script:
 - Cada imagen incluye el tiempo de inferencia en los metadatos
 
 **Opciones principales:**
-- `--modelo`: Modelo a usar (1, 2, 3, 4 o 5) - **REQUERIDO** (modelos 4 y 5 también pueden usar main.py directamente)
+- `--modelo`: Modelo a usar (1, 2, 3, 4 o 5) - **REQUERIDO**
 - `--input_dir`: Directorio con imágenes (default: Inferencia/)
 - `--output_dir`: Directorio base de salida (default: Resultados_Inferencia/resultado_inferencia_modelo_X/)
 - `--modelos_dir`: Directorio donde están los modelos (default según modelo seleccionado)
@@ -747,6 +757,7 @@ Este script:
 - `--patch_size`: Tamaño de parche (default: 256)
 - `--overlap_ratio`: Solapamiento entre parches (default: 0.3)
 - `--img_size`: Tamaño de imagen cuando NO se usa segmentación (default: 256)
+- `--backbone`: Backbone para modelos 4 y 5 (resnet18, resnet50, wide_resnet50_2)
 
 **Ejemplos:**
 
@@ -762,6 +773,12 @@ python inferir_todas_imagenes.py --modelo 2
 
 # Modelo 3: Inferir con ViT
 python inferir_todas_imagenes.py --modelo 3
+
+# Modelo 4: Inferir con FastFlow
+python inferir_todas_imagenes.py --modelo 4 --backbone resnet18
+
+# Modelo 5: Inferir con STPM
+python inferir_todas_imagenes.py --modelo 5 --backbone resnet18
 
 # Directorio personalizado
 python inferir_todas_imagenes.py --modelo 1 --input_dir "E:/Dataset/test" --output_dir "E:/Resultados"
@@ -784,12 +801,19 @@ Resultados_Inferencia/
 │   ├── resnet18/
 │   ├── resnet50/
 │   └── wide_resnet50_2/
-└── resultado_inferencia_modelo_3/
-    ├── knn_k5/
-    ├── iforest_c0.1/
-    ├── ocsvm_nu0.1/
-    ├── lof_k5/
-    └── elliptic_c0.1/
+├── resultado_inferencia_modelo_3/
+│   ├── knn_k5/
+│   ├── iforest_c0.1/
+│   ├── ocsvm_nu0.1/
+│   ├── lof_k5/
+│   └── elliptic_c0.1/
+├── resultado_inferencia_modelo_4/
+│   ├── resnet18/
+│   └── resnet50/
+└── resultado_inferencia_modelo_5/
+    ├── resnet18/
+    ├── resnet50/
+    └── wide_resnet50_2/
 ```
 
 **Nota:** El script detecta automáticamente qué variantes están disponibles según los modelos entrenados encontrados en el directorio `models/` de cada modelo.
