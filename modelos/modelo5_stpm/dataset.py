@@ -15,6 +15,8 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+if str(PROJECT_ROOT / "preprocesamiento") not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT / "preprocesamiento"))
 
 from config import DATASET_PATH
 from preprocesamiento.preprocesamiento import preprocesar_imagen_3canales
@@ -54,9 +56,11 @@ class MDPDataset(Dataset):
     
     def _load_images(self):
         """Carga las rutas de imágenes según la estructura del dataset."""
+        # Intentar estructura 1: train/normal/, valid/normal/, valid/defectuoso/
         split_dir = self.data_dir / self.split
         if split_dir.exists():
             if self.class_name is None:
+                # Cargar ambos: normal y defectuoso
                 self._load_from_folder(split_dir / 'normal', label=0)
                 self._load_from_folder(split_dir / 'defectuoso', label=1)
             elif self.class_name == 'normal':
@@ -65,19 +69,34 @@ class MDPDataset(Dataset):
                 self._load_from_folder(split_dir / 'defectuoso', label=1)
             return
         
+        # Intentar estructura 2: carpetas numéricas (0-9) - solo normales para entrenamiento
         if self.split == 'train' and self.class_name in [None, 'normal']:
             for class_dir in range(10):
                 class_path = self.data_dir / str(class_dir)
                 if class_path.exists() and class_path.is_dir():
                     self._load_from_folder(class_path, label=0)
         
+        # Si no se encontró nada, buscar en la raíz
         if len(self.image_paths) == 0:
             if self.class_name is None:
+                # Buscar en normal/ y defectuoso/ en la raíz
                 self._load_from_folder(self.data_dir / 'normal', label=0)
                 self._load_from_folder(self.data_dir / 'defectuoso', label=1)
             elif self.class_name == 'normal':
                 self._load_from_folder(self.data_dir / 'normal', label=0)
             elif self.class_name == 'defectuoso':
+                self._load_from_folder(self.data_dir / 'defectuoso', label=1)
+        
+        # Si aún no se encontró nada y es split='valid', intentar usar 'train' como fallback
+        if len(self.image_paths) == 0 and self.split == 'valid':
+            # Intentar cargar desde estructura de carpetas numéricas (0-9) como validación
+            for class_dir in range(10):
+                class_path = self.data_dir / str(class_dir)
+                if class_path.exists() and class_path.is_dir():
+                    self._load_from_folder(class_path, label=0)
+            # También intentar desde normal/ y defectuoso/ en la raíz
+            if len(self.image_paths) == 0:
+                self._load_from_folder(self.data_dir / 'normal', label=0)
                 self._load_from_folder(self.data_dir / 'defectuoso', label=1)
     
     def _load_from_folder(self, folder: Path, label: int):

@@ -25,8 +25,10 @@ from torch.utils.data import DataLoader, ConcatDataset
 
 # Agregar rutas al path
 PROJECT_ROOT = Path(__file__).parent
-sys.path.insert(0, str(PROJECT_ROOT))
-sys.path.insert(0, str(PROJECT_ROOT / "preprocesamiento"))
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+if str(PROJECT_ROOT / "preprocesamiento") not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT / "preprocesamiento"))
 
 import config
 from modelos.modelo5_stpm.models import STPM
@@ -92,19 +94,24 @@ def obtener_imagenes_etiquetadas(etiquetadas_dir: Path) -> Tuple[List[Path], Lis
     return imagenes, etiquetas
 
 
-def crear_dataset_validacion(etiquetadas_dir: Path, img_size: int = 256) -> Tuple[DataLoader, List[int]]:
+def crear_dataset_validacion(etiquetadas_dir: Path, img_size: int = 256, aplicar_preprocesamiento: bool = False) -> Tuple[DataLoader, List[int]]:
     """
     Crea un DataLoader desde las imágenes de validación (sin fallas y fallas).
+    
+    Args:
+        aplicar_preprocesamiento: Si True, aplica preprocesamiento completo (eliminar bordes + 3 canales).
+                                 Si False, asume que las imágenes ya están preprocesadas.
     """
     # Obtener imágenes y etiquetas
     imagenes, etiquetas = obtener_imagenes_etiquetadas(etiquetadas_dir)
     
     # Crear dataset personalizado
     class ValidacionDataset(torch.utils.data.Dataset):
-        def __init__(self, image_paths, labels, img_size):
+        def __init__(self, image_paths, labels, img_size, aplicar_preprocesamiento):
             self.image_paths = image_paths
             self.labels = labels
             self.img_size = img_size
+            self.aplicar_preprocesamiento = aplicar_preprocesamiento
             
         def __len__(self):
             return len(self.image_paths)
@@ -113,30 +120,58 @@ def crear_dataset_validacion(etiquetadas_dir: Path, img_size: int = 256) -> Tupl
             img_path = self.image_paths[idx]
             label = self.labels[idx]
             
-            # Cargar imagen (ya está preprocesada, 3 canales)
-            img = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
-            if img is None:
-                # Intentar como escala de grises y convertir
-                img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
-                if img is not None:
-                    img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+            if self.aplicar_preprocesamiento:
+                # === PREPROCESAMIENTO COMPLETO ===
+                # 1. Cargar imagen original
+                img_original = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
+                if img_original is None:
+                    # Intentar como color y convertir a escala de grises
+                    img_color = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
+                    if img_color is None:
+                        raise ValueError(f"No se pudo cargar: {img_path}")
+                    img_original = cv2.cvtColor(img_color, cv2.COLOR_BGR2GRAY)
+                
+                # 2. Eliminar bordes
+                from preprocesamiento.correct_board import auto_crop_borders_improved
+                img_sin_bordes = auto_crop_borders_improved(img_original)
+                
+                # 3. Redimensionar si es necesario
+                if self.img_size is not None:
+                    img_sin_bordes = cv2.resize(img_sin_bordes, (self.img_size, self.img_size), interpolation=cv2.INTER_LINEAR)
+                
+                # 4. Convertir a 3 canales
+                from preprocesamiento.preprocesamiento import preprocesar_imagen_3canales
+                img = preprocesar_imagen_3canales(img_sin_bordes)
+                
+                # Convertir BGR a RGB (preprocesar_imagen_3canales devuelve RGB)
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) if len(img.shape) == 3 else img
+            else:
+                # Cargar imagen (ya está preprocesada, 3 canales RGB)
+                img = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
+                if img is None:
+                    # Intentar como escala de grises y convertir
+                    img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
+                    if img is not None:
+                        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+                
+                if img is None:
+                    raise ValueError(f"No se pudo cargar: {img_path}")
+                
+                # Redimensionar si es necesario
+                if self.img_size is not None:
+                    img = cv2.resize(img, (self.img_size, self.img_size), interpolation=cv2.INTER_LINEAR)
+                
+                # Convertir BGR a RGB
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             
-            if img is None:
-                raise ValueError(f"No se pudo cargar: {img_path}")
-            
-            # Redimensionar si es necesario
-            if self.img_size is not None:
-                img = cv2.resize(img, (self.img_size, self.img_size), interpolation=cv2.INTER_LINEAR)
-            
-            # Convertir BGR a RGB y normalizar
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            # Normalizar
             img_tensor = torch.from_numpy(img).float() / 255.0
             img_tensor = img_tensor.permute(2, 0, 1)  # (C, H, W)
             
             return img_tensor, label
     
     # Crear dataset
-    dataset = ValidacionDataset(imagenes, etiquetas, img_size)
+    dataset = ValidacionDataset(imagenes, etiquetas, img_size, aplicar_preprocesamiento)
     
     # Crear DataLoader
     loader = DataLoader(
@@ -195,7 +230,8 @@ def evaluar_modelo(
     print("\nCreando DataLoader desde imágenes de validación...")
     eval_loader, etiquetas_loader = crear_dataset_validacion(
         etiquetadas_dir,
-        img_size=img_size
+        img_size=img_size,
+        aplicar_preprocesamiento=aplicar_preprocesamiento
     )
     
     print(f"Imágenes a evaluar: {len(eval_loader.dataset)}")

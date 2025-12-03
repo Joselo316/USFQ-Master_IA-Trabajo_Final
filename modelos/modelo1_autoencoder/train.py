@@ -11,6 +11,7 @@ import sys
 import time
 from pathlib import Path
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Agregar rutas al path
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -33,6 +34,8 @@ except ImportError:
 import cv2
 import numpy as np
 from typing import List
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import partial
 
 # Importar configuración y utilidades
 import config
@@ -40,6 +43,7 @@ from modelos.modelo1_autoencoder.model_autoencoder import ConvAutoencoder
 from modelos.modelo1_autoencoder.model_autoencoder_transfer import AutoencoderTransferLearning
 from modelos.modelo1_autoencoder.utils import cargar_y_dividir_en_parches
 from preprocesamiento.preprocesamiento import cargar_y_preprocesar_3canales
+from utils_patches_cache import cargar_parches_cache, guardar_parches_cache
 
 
 class GoodBoardsDataset(Dataset):
@@ -54,7 +58,8 @@ class GoodBoardsDataset(Dataset):
                  img_size: int = 256,
                  use_segmentation: bool = False,
                  patch_size: int = 256,
-                 overlap_ratio: float = 0.3):
+                 overlap_ratio: float = 0.3,
+                 parches_dir: str = None):
         """
         Args:
             root_dir: Directorio raíz que contiene las carpetas 0, 1, ..., 9
@@ -62,16 +67,23 @@ class GoodBoardsDataset(Dataset):
             use_segmentation: Si True, segmenta las imágenes en parches SIN redimensionar
             patch_size: Tamaño de cada parche cuando se usa segmentación
             overlap_ratio: Ratio de solapamiento entre parches (0.0 a 1.0)
+            parches_dir: Directorio donde están los parches pre-procesados (opcional)
         """
         self.root_dir = Path(root_dir)
         self.img_size = img_size
         self.use_segmentation = use_segmentation
         self.patch_size = patch_size
         self.overlap_ratio = overlap_ratio
+        self.parches_dir = Path(parches_dir) if parches_dir else None
         
         self.image_paths: List[Path] = []
         self.patches_info: List[tuple] = []
         self.image_shapes: List[tuple] = []
+        self.patches_cache: List[List[np.ndarray]] = []  # Cache de parches procesados (solo para cache temporal)
+        self.parches_paths: List[List[Path]] = []  # Rutas a parches pre-procesados (para carga lazy)
+        self.usar_parches_preprocesados = False  # Flag para usar parches desde disco
+        self.max_cache_size = getattr(config, 'MAX_CACHE_IMAGENES', 50)  # Máximo número de parches a cachear (LRU)
+        self._parches_cache_dict = {}  # Cache LRU para parches cargados
         
         # Buscar todas las imágenes en las carpetas 0-9
         for class_dir in range(10):
@@ -87,28 +99,109 @@ class GoodBoardsDataset(Dataset):
                 f"Asegúrate de que existan carpetas 0-9 con imágenes válidas."
             )
         
-        # Si se usa segmentación, pre-calcular todos los parches
+        # Si se usa segmentación, intentar cargar parches pre-procesados primero
         if self.use_segmentation:
             print(f"Cargando y dividiendo {len(self.image_paths)} imágenes en parches de {patch_size}x{patch_size}...")
             print(f"  Solapamiento: {overlap_ratio*100:.0f}%")
             
-            for img_idx, img_path in enumerate(self.image_paths):
-                try:
-                    patches, _ = cargar_y_dividir_en_parches(
-                        str(img_path),
-                        tamaño_parche=self.patch_size,
-                        solapamiento=self.overlap_ratio,
-                        normalizar=True
-                    )
+            # Prioridad 1: Intentar cargar desde parches pre-procesados (si se especificó parches_dir)
+            if self.parches_dir and self.parches_dir.exists():
+                print(f"  Buscando parches pre-procesados en: {self.parches_dir}")
+                if self._cargar_parches_preprocesados():
+                    print(f"  ✓ Parches cargados desde: {self.parches_dir}")
+                    print(f"  Total de parches cargados: {len(self.patches_info)}")
+                    return  # Salir temprano si se cargaron parches pre-procesados
+            
+            # Prioridad 2: Intentar cargar desde cache en disco
+            cache_result = cargar_parches_cache(
+                str(self.root_dir),
+                patch_size,
+                overlap_ratio,
+                self.image_paths
+            )
+            
+            if cache_result is not None:
+                # Cache encontrado y válido
+                # NOTA: El cache temporal carga todo en memoria, pero es más rápido que procesar
+                # Si tienes problemas de memoria, considera usar parches pre-procesados en lugar de cache
+                patches_por_imagen, cache_dir = cache_result
+                self.patches_cache = patches_por_imagen
+                
+                # Construir patches_info
+                for img_idx, patches in enumerate(patches_por_imagen):
+                    if patches is not None:
+                        for patch_idx in range(len(patches)):
+                            self.patches_info.append((img_idx, patch_idx))
+                        self.image_shapes.append((len(patches),))
+                
+                print(f"  Total de parches cargados desde cache: {len(self.patches_info)}")
+                print(f"  ADVERTENCIA: Todos los parches están en memoria. Si tienes problemas de RAM,")
+                print(f"    considera usar parches pre-procesados (preprocesar_parches.py) para carga lazy")
+            else:
+                # Cache no encontrado, procesar imágenes
+                print(f"  Cache no encontrado. Procesando imágenes...")
+                print(f"  Usando procesamiento paralelo para acelerar...")
+                
+                # Función auxiliar para procesar una imagen
+                def procesar_imagen(img_path_idx):
+                    img_path, img_idx = img_path_idx
+                    try:
+                        patches, _ = cargar_y_dividir_en_parches(
+                            str(img_path),
+                            tamaño_parche=self.patch_size,
+                            solapamiento=self.overlap_ratio,
+                            normalizar=True
+                        )
+                        return img_idx, patches, None
+                    except Exception as e:
+                        return img_idx, None, str(e)
+                
+                # Procesar imágenes en paralelo usando ThreadPoolExecutor
+                num_workers = min(8, os.cpu_count() or 1)  # Usar hasta 8 workers
+                processed_count = 0
+                
+                with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                    # Enviar todas las tareas
+                    futures = {
+                        executor.submit(procesar_imagen, (img_path, img_idx)): img_idx
+                        for img_idx, img_path in enumerate(self.image_paths)
+                    }
+                    
+                    # Procesar resultados conforme se completan
+                    resultados = {}
+                    for future in as_completed(futures):
+                        img_idx, patches, error = future.result()
+                        if error is None and patches is not None:
+                            resultados[img_idx] = patches
+                            processed_count += 1
+                            if processed_count % 10 == 0:
+                                print(f"  Procesadas {processed_count}/{len(self.image_paths)} imágenes", end='\r')
+                        elif error:
+                            print(f"\n  Error procesando {self.image_paths[img_idx].name}: {error}")
+                
+                # Ordenar resultados por índice de imagen y construir cache
+                self.patches_cache = [None] * len(self.image_paths)
+                patches_por_imagen = []
+                for img_idx in sorted(resultados.keys()):
+                    patches = resultados[img_idx]
+                    self.patches_cache[img_idx] = patches
+                    patches_por_imagen.append(patches)
                     for patch_idx in range(len(patches)):
                         self.patches_info.append((img_idx, patch_idx))
                     self.image_shapes.append((len(patches),))
-                    if (img_idx + 1) % 10 == 0:
-                        print(f"  Procesadas {img_idx + 1}/{len(self.image_paths)} imágenes", end='\r')
-                except Exception as e:
-                    print(f"  Error procesando {img_path.name}: {e}")
-            
-            print(f"\n  Total de parches generados: {len(self.patches_info)}")
+                
+                # Guardar en cache en disco para reutilización futura
+                print(f"\n  Guardando parches en cache para reutilización...")
+                guardar_parches_cache(
+                    str(self.root_dir),
+                    patch_size,
+                    overlap_ratio,
+                    patches_por_imagen,
+                    self.image_paths
+                )
+                
+                print(f"  Total de parches generados: {len(self.patches_info)}")
+                print(f"  Parches cacheados en memoria y disco para acceso rápido")
         else:
             # Sin segmentación: cada imagen es una muestra
             for img_idx, img_path in enumerate(self.image_paths):
@@ -118,19 +211,140 @@ class GoodBoardsDataset(Dataset):
     def __len__(self):
         return len(self.patches_info)
     
+    def _cargar_parches_preprocesados(self) -> bool:
+        """
+        Intenta cargar rutas de parches desde el directorio de parches pre-procesados.
+        NO carga los parches en memoria, solo guarda las rutas para carga lazy.
+        
+        Returns:
+            True si se encontraron parches, False en caso contrario
+        """
+        try:
+            parches_paths_por_imagen = []
+            total_parches = 0
+            
+            for img_idx, img_path in enumerate(self.image_paths):
+                clase = img_path.parent.name
+                imagen_nombre = img_path.stem
+                
+                # Buscar directorio de parches para esta imagen
+                parches_imagen_dir = self.parches_dir / clase / imagen_nombre
+                
+                if not parches_imagen_dir.exists():
+                    # No hay parches pre-procesados para esta imagen
+                    parches_paths_por_imagen.append(None)
+                    continue
+                
+                # Obtener rutas a todos los parches (NO cargar en memoria)
+                parches_archivos = sorted(parches_imagen_dir.glob("parche_*.png"))
+                
+                if len(parches_archivos) == 0:
+                    parches_paths_por_imagen.append(None)
+                    continue
+                
+                # Guardar solo las rutas (carga lazy)
+                parches_paths_por_imagen.append(parches_archivos)
+                total_parches += len(parches_archivos)
+            
+            # Verificar que al menos algunas imágenes tienen parches
+            imagenes_con_parches = sum(1 for p in parches_paths_por_imagen if p is not None)
+            if imagenes_con_parches == 0:
+                return False
+            
+            # Guardar rutas (NO cargar en memoria)
+            self.parches_paths = parches_paths_por_imagen
+            
+            # Construir patches_info (solo índices, sin cargar datos)
+            for img_idx, parches_paths in enumerate(parches_paths_por_imagen):
+                if parches_paths is not None:
+                    for patch_idx in range(len(parches_paths)):
+                        self.patches_info.append((img_idx, patch_idx))
+                    self.image_shapes.append((len(parches_paths),))
+            
+            self.usar_parches_preprocesados = True
+            print(f"  Total de parches encontrados: {total_parches} (carga lazy activada)")
+            print(f"  Cache LRU: máximo {self.max_cache_size} parches en memoria")
+            return True
+            
+        except Exception as e:
+            print(f"  Error cargando rutas de parches pre-procesados: {e}")
+            return False
+    
+    def _cargar_parche_desde_disco(self, img_idx: int, patch_idx: int) -> np.ndarray:
+        """
+        Carga un parche específico desde disco (carga lazy).
+        Usa un cache LRU limitado para evitar recargar parches frecuentemente usados.
+        
+        Args:
+            img_idx: Índice de la imagen
+            patch_idx: Índice del parche dentro de la imagen
+        
+        Returns:
+            Parche normalizado como array numpy
+        """
+        # Crear clave para el cache
+        cache_key = (img_idx, patch_idx)
+        
+        # Verificar si está en cache
+        if cache_key in self._parches_cache_dict:
+            # Mover al final (LRU)
+            parche = self._parches_cache_dict.pop(cache_key)
+            self._parches_cache_dict[cache_key] = parche
+            return parche
+        
+        # Cargar desde disco
+        if img_idx >= len(self.parches_paths) or self.parches_paths[img_idx] is None:
+            raise ValueError(f"No hay parches pre-procesados para imagen {img_idx}")
+        
+        if patch_idx >= len(self.parches_paths[img_idx]):
+            raise ValueError(f"Índice de parche {patch_idx} fuera de rango para imagen {img_idx}")
+        
+        parche_path = self.parches_paths[img_idx][patch_idx]
+        parche_img = cv2.imread(str(parche_path), cv2.IMREAD_COLOR)
+        
+        if parche_img is None:
+            raise ValueError(f"No se pudo cargar parche: {parche_path}")
+        
+        # Convertir BGR a RGB y normalizar a [0, 1]
+        parche_rgb = cv2.cvtColor(parche_img, cv2.COLOR_BGR2RGB)
+        parche_norm = parche_rgb.astype(np.float32) / 255.0
+        
+        # Agregar al cache (LRU)
+        if len(self._parches_cache_dict) >= self.max_cache_size:
+            # Eliminar el más antiguo (primero en el dict)
+            oldest_key = next(iter(self._parches_cache_dict))
+            del self._parches_cache_dict[oldest_key]
+        
+        self._parches_cache_dict[cache_key] = parche_norm
+        
+        return parche_norm
+    
     def __getitem__(self, idx):
         img_idx, patch_idx = self.patches_info[idx]
         img_path = self.image_paths[img_idx]
         
         if self.use_segmentation:
-            # Cargar y dividir en parches
-            patches, _ = cargar_y_dividir_en_parches(
-                str(img_path),
-                tamaño_parche=self.patch_size,
-                solapamiento=self.overlap_ratio,
-                normalizar=True
-            )
-            patch = patches[patch_idx]
+            # Prioridad 1: Parches pre-procesados (carga lazy desde disco)
+            if self.usar_parches_preprocesados:
+                patch = self._cargar_parche_desde_disco(img_idx, patch_idx)
+            # Prioridad 2: Cache en memoria (para cache temporal)
+            elif len(self.patches_cache) > img_idx and self.patches_cache[img_idx] is not None:
+                patches = self.patches_cache[img_idx]
+                patch = patches[patch_idx]
+            else:
+                # Fallback: cargar y dividir en tiempo real
+                patches, _ = cargar_y_dividir_en_parches(
+                    str(img_path),
+                    tamaño_parche=self.patch_size,
+                    solapamiento=self.overlap_ratio,
+                    normalizar=True
+                )
+                # Guardar en cache solo si hay espacio (evitar saturar memoria)
+                if len(self.patches_cache) <= img_idx:
+                    self.patches_cache.extend([None] * (img_idx + 1 - len(self.patches_cache)))
+                self.patches_cache[img_idx] = patches
+                patch = patches[patch_idx]
+            
             # Convertir a tensor: (H, W, 3) -> (3, H, W)
             patch_tensor = torch.from_numpy(patch).permute(2, 0, 1).float()
             return patch_tensor
@@ -399,12 +613,25 @@ def main():
         print(f"  Tamaño de parche: {patch_size}x{patch_size}")
         print(f"  Solapamiento: {overlap_ratio*100:.1f}%")
     
+    # Determinar directorio de parches pre-procesados si se usa segmentación
+    parches_dir = None
+    if args.use_segmentation:
+        # Intentar obtener desde config.py
+        try:
+            parches_dir = config.obtener_ruta_parches(patch_size, overlap_ratio)
+            parches_path = Path(parches_dir)
+            if not parches_path.exists():
+                parches_dir = None  # No existe, usar procesamiento normal
+        except:
+            parches_dir = None
+    
     dataset = GoodBoardsDataset(
         root_dir=data_dir,
         img_size=img_size,
         use_segmentation=args.use_segmentation,
         patch_size=patch_size,
-        overlap_ratio=overlap_ratio
+        overlap_ratio=overlap_ratio,
+        parches_dir=parches_dir
     )
     
     # Dividir en train/val

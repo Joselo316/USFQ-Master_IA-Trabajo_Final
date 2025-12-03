@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 import config
 from modelos.modelo1_autoencoder.utils import (
     cargar_y_dividir_en_parches,
+    dividir_en_parches,
     reconstruir_desde_parches,
     guardar_resultado_con_metadatos
 )
@@ -156,6 +157,37 @@ def main():
 
     args = parser.parse_args()
     
+    # Resolver ruta del modelo: si es relativa, buscar desde el directorio del script
+    if not os.path.isabs(args.model_path):
+        # Ruta relativa: intentar desde el directorio del script primero
+        script_dir = Path(__file__).parent
+        model_path_script = script_dir / args.model_path
+        if model_path_script.exists():
+            args.model_path = str(model_path_script)
+        else:
+            # Si no existe, intentar desde el directorio actual
+            model_path_cwd = Path(args.model_path)
+            if model_path_cwd.exists():
+                args.model_path = str(model_path_cwd.resolve())
+            else:
+                # Sugerir rutas posibles
+                posibles_rutas = [
+                    str(script_dir / "models" / "autoencoder_normal.pt"),
+                    str(script_dir / "models_256" / "autoencoder_normal.pt"),
+                    str(Path.cwd() / "models" / "autoencoder_normal.pt")
+                ]
+                rutas_existentes = [r for r in posibles_rutas if os.path.exists(r)]
+                mensaje = (
+                    f"Modelo no encontrado: {args.model_path}\n"
+                    f"Por favor, entrena el modelo primero.\n"
+                )
+                if rutas_existentes:
+                    mensaje += f"\nModelos encontrados en:\n"
+                    for ruta in rutas_existentes:
+                        mensaje += f"  - {ruta}\n"
+                    mensaje += f"\nUsa una de estas rutas con --model_path"
+                raise FileNotFoundError(mensaje)
+    
     # Usar valores de config si no se especifican
     patch_size = args.patch_size if args.patch_size is not None else config.PATCH_SIZE
     overlap_ratio = args.overlap_ratio if args.overlap_ratio is not None else config.OVERLAP_RATIO
@@ -169,7 +201,7 @@ def main():
     if not os.path.exists(args.image_path):
         raise FileNotFoundError(f"Imagen no encontrada: {args.image_path}")
     
-    # Verificar que existe el modelo
+    # Verificar que existe el modelo (ya resuelto arriba, pero verificar de nuevo)
     if not os.path.exists(args.model_path):
         raise FileNotFoundError(
             f"Modelo no encontrado: {args.model_path}\n"
@@ -215,14 +247,42 @@ def main():
     
     print("Ejecutando inferencia...")
     print(f"  Modo de procesamiento: {'PARCHES (segmentación)' if modo_procesamiento == 'parches' else 'RESIZE (redimensionar imagen completa)'}")
+    print(f"  Preprocesamiento: Eliminando bordes → Convertir a 3 canales → Inferir")
     
     if modo_procesamiento == "parches":
         print(f"  Usando PARCHES: dividiendo imagen en parches de {patch_size}x{patch_size}")
         print(f"  Solapamiento: {overlap_ratio*100:.1f}%")
         
-        # Cargar imagen y aplicar preprocesamiento de 3 canales, luego dividir en parches
-        patches, coordinates = cargar_y_dividir_en_parches(
-            args.image_path,
+        # === PREPROCESAMIENTO COMPLETO ===
+        # 1. Eliminar bordes y corregir orientación
+        print("  Paso 1: Eliminando bordes y corrigiendo orientación...")
+        from preprocesamiento.correct_board import auto_crop_borders_improved
+        import tempfile
+        
+        # Cargar imagen original
+        img_original = cv2.imread(args.image_path, cv2.IMREAD_GRAYSCALE)
+        if img_original is None:
+            # Intentar como color y convertir a escala de grises
+            img_color = cv2.imread(args.image_path, cv2.IMREAD_COLOR)
+            if img_color is None:
+                raise ValueError(f"No se pudo cargar la imagen: {args.image_path}")
+            img_original = cv2.cvtColor(img_color, cv2.COLOR_BGR2GRAY)
+        
+        # Eliminar bordes
+        img_sin_bordes = auto_crop_borders_improved(img_original)
+        print(f"    Tamaño original: {img_original.shape[1]}x{img_original.shape[0]}")
+        print(f"    Tamaño sin bordes: {img_sin_bordes.shape[1]}x{img_sin_bordes.shape[0]}")
+        
+        # 2. Convertir a 3 canales
+        print("  Paso 2: Convirtiendo a 3 canales...")
+        from preprocesamiento.preprocesamiento import preprocesar_imagen_3canales
+        img_3canales = preprocesar_imagen_3canales(img_sin_bordes)
+        print(f"    Imagen procesada: {img_3canales.shape[1]}x{img_3canales.shape[0]} (3 canales)")
+        
+        # 3. Dividir en parches
+        print("  Paso 3: Dividiendo en parches...")
+        patches, coordinates = dividir_en_parches(
+            img_3canales,
             tamaño_parche=patch_size,
             solapamiento=overlap_ratio,
             normalizar=True
@@ -282,38 +342,53 @@ def main():
             overlap_ratio
         )
         
-        # Cargar imagen original preprocesada para comparar
-        from preprocesamiento.preprocesamiento import cargar_y_preprocesar_3canales
-        img_original_3canales = cargar_y_preprocesar_3canales(args.image_path)
-        img_original_resized = cv2.resize(img_original_3canales, (recon_w, recon_h), interpolation=cv2.INTER_LINEAR)
+        # Usar imagen ya preprocesada (sin bordes y 3 canales) para comparar
+        # Redimensionar la imagen 3 canales al tamaño de reconstrucción
+        img_original_resized = cv2.resize(img_3canales, (recon_w, recon_h), interpolation=cv2.INTER_LINEAR)
         img_normalized = img_original_resized.astype(np.float32) / 255.0
         
         # Calcular error completo (promedio sobre canales)
         error_map = np.mean((reconstruction_np - img_normalized) ** 2, axis=2)
         
-        # Para visualización, usar la imagen original en escala de grises
-        img_resized = cv2.resize(img_original, (img_size, img_size), interpolation=cv2.INTER_LINEAR)
+        # Para visualización, usar la imagen sin bordes (ya procesada arriba)
+        img_resized = cv2.resize(img_sin_bordes, (img_size, img_size), interpolation=cv2.INTER_LINEAR)
         
     else:
         # Procesamiento con resize
         print(f"  Usando RESIZE: redimensionando imagen completa a {img_size}x{img_size}")
         
+        # === PREPROCESAMIENTO COMPLETO ===
+        # 1. Eliminar bordes y corregir orientación
+        print("  Paso 1: Eliminando bordes y corrigiendo orientación...")
+        from preprocesamiento.correct_board import auto_crop_borders_improved
+        
         # Cargar imagen original
         img_original = cv2.imread(args.image_path, cv2.IMREAD_GRAYSCALE)
         if img_original is None:
-            raise ValueError(f"No se pudo cargar la imagen: {args.image_path}")
+            # Intentar como color y convertir a escala de grises
+            img_color = cv2.imread(args.image_path, cv2.IMREAD_COLOR)
+            if img_color is None:
+                raise ValueError(f"No se pudo cargar la imagen: {args.image_path}")
+            img_original = cv2.cvtColor(img_color, cv2.COLOR_BGR2GRAY)
         
         original_h, original_w = img_original.shape
-        print(f"  Dimensiones originales: {original_w}x{original_h}")
-        print(f"  Redimensionando a: {img_size}x{img_size}")
+        print(f"    Tamaño original: {original_w}x{original_h}")
         
-        num_parches = 1
+        # Eliminar bordes
+        img_sin_bordes = auto_crop_borders_improved(img_original)
+        print(f"    Tamaño sin bordes: {img_sin_bordes.shape[1]}x{img_sin_bordes.shape[0]}")
         
-        # Aplicar preprocesamiento de 3 canales
+        # 2. Redimensionar
+        print(f"  Paso 2: Redimensionando a {img_size}x{img_size}...")
+        img_resized = cv2.resize(img_sin_bordes, (img_size, img_size), interpolation=cv2.INTER_LINEAR)
+        
+        # 3. Convertir a 3 canales
+        print("  Paso 3: Convirtiendo a 3 canales...")
         from preprocesamiento.preprocesamiento import preprocesar_imagen_3canales
-        img_resized = cv2.resize(img_original, (img_size, img_size), interpolation=cv2.INTER_LINEAR)
         img_3canales = preprocesar_imagen_3canales(img_resized)
         img_normalized = img_3canales.astype(np.float32) / 255.0
+        
+        num_parches = 1
         
         # Convertir a tensor: (1, 3, H, W)
         image_tensor = torch.from_numpy(img_normalized).permute(2, 0, 1).unsqueeze(0).to(device)

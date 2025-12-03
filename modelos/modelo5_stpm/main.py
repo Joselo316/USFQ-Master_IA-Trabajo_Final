@@ -75,12 +75,29 @@ def train(
     device: torch.device,
     epochs: int = 50,
     lr: float = 1e-4,
-    save_path: Path = None
+    save_path: Path = None,
+    output_dir: Path = None,
+    config: dict = None,
+    val_loader: DataLoader = None
 ):
     """Entrena el modelo STPM."""
+    import json
+    from datetime import datetime
+    
     optimizer = optim.Adam(model.student.parameters(), lr=lr)
     
     best_loss = float('inf')
+    
+    # Inicializar historial de entrenamiento
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    history = {
+        'train_loss': [],
+        'val_loss': [] if val_loader is not None else None,
+        'epoch': [],
+        'learning_rate': [],
+        'best_loss': [],
+        'config': config or {}
+    }
     
     print(f"\n{'='*70}")
     print("ENTRENANDO STPM")
@@ -91,21 +108,76 @@ def train(
     print(f"{'='*70}\n")
     
     for epoch in range(1, epochs + 1):
-        loss = train_epoch(model, train_loader, optimizer, device, epoch)
-        print(f"Epoch {epoch}/{epochs} - Loss: {loss:.6f}")
+        train_loss = train_epoch(model, train_loader, optimizer, device, epoch)
         
-        if loss < best_loss and save_path is not None:
-            best_loss = loss
+        # Validación si hay val_loader
+        val_loss = None
+        if val_loader is not None:
+            model.eval()
+            val_losses = []
+            with torch.no_grad():
+                for images, _ in val_loader:
+                    images = images.to(device)
+                    loss = model.compute_loss(images)
+                    val_losses.append(loss.item())
+            val_loss = sum(val_losses) / len(val_losses)
+            model.train()
+            print(f"Epoch {epoch}/{epochs} - Train Loss: {train_loss:.6f} - Val Loss: {val_loss:.6f}")
+        else:
+            print(f"Epoch {epoch}/{epochs} - Loss: {train_loss:.6f}")
+        
+        # Guardar en historial
+        history['train_loss'].append(float(train_loss))
+        if val_loss is not None:
+            history['val_loss'].append(float(val_loss))
+        history['epoch'].append(epoch)
+        history['learning_rate'].append(float(optimizer.param_groups[0]['lr']))
+        history['best_loss'].append(float(best_loss))
+        
+        # Usar val_loss para early stopping si está disponible, sino train_loss
+        loss_for_checkpoint = val_loss if val_loss is not None else train_loss
+        
+        if loss_for_checkpoint < best_loss and save_path is not None:
+            best_loss = loss_for_checkpoint
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-                'loss': loss
+                'loss': loss_for_checkpoint
             }, save_path)
             print(f"Modelo guardado en: {save_path}")
     
+    # Guardar historial completo en JSON
+    history_saved = False
+    if output_dir is not None:
+        try:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            model_name = save_path.stem if save_path else "stpm"
+            history_path = output_dir / f"training_history_{model_name}_{timestamp}.json"
+            with open(history_path, 'w', encoding='utf-8') as f:
+                json.dump(history, f, indent=2, ensure_ascii=False)
+            history_saved = True
+        except Exception as e:
+            print(f"  Advertencia: No se pudo guardar historial: {e}")
+            history_path = None
+    else:
+        history_path = None
+    
     print(f"\n{'='*70}")
     print("ENTRENAMIENTO COMPLETADO")
+    print(f"{'='*70}")
+    print(f"Épocas entrenadas: {len(history['train_loss'])}/{epochs}")
+    print(f"Mejor loss: {best_loss:.6f}")
+    if len(history['train_loss']) > 0:
+        if history['val_loss'] is not None and len(history['val_loss']) > 0:
+            best_epoch = history['val_loss'].index(min(history['val_loss'])) + 1
+        else:
+            best_epoch = history['train_loss'].index(min(history['train_loss'])) + 1
+        print(f"Mejor época: {best_epoch}")
+    if save_path and save_path.exists():
+        print(f"Modelo guardado en: {save_path}")
+    if history_saved:
+        print(f"Historial completo guardado: {history_path}")
     print(f"{'='*70}")
 
 
@@ -197,6 +269,10 @@ def main():
                        help='Guardar imágenes de ejemplo')
     parser.add_argument('--num_samples', type=int, default=10,
                        help='Número de imágenes de ejemplo')
+    parser.add_argument('--val_split', type=float, default=0.15,
+                       help='Proporción de datos para validación durante entrenamiento (default: 0.15)')
+    parser.add_argument('--num_workers', type=int, default=None,
+                       help='Número de workers para DataLoader (default: min(8, CPU_count))')
     
     args = parser.parse_args()
     
@@ -219,15 +295,35 @@ def main():
     
     if args.mode in ['train', 'train_eval']:
         print("\nCargando dataset de entrenamiento...")
-        train_loader = get_train_loader(
+        
+        # Cargar dataset y dividir en train/val automáticamente
+        train_loader, val_loader = get_train_loader(
             data_dir=data_dir,
             batch_size=args.batch_size,
-            img_size=args.img_size
+            img_size=args.img_size,
+            num_workers=args.num_workers,
+            val_split=args.val_split,
+            return_val_loader=True
         )
         print(f"Imágenes de entrenamiento: {len(train_loader.dataset)}")
+        print(f"Imágenes de validación: {len(val_loader.dataset)}")
+        print(f"DataLoader num_workers: {train_loader.num_workers}")
         
         model_path = models_dir / f'stpm_{args.backbone}_{args.img_size}.pt'
-        train(model, train_loader, device, args.epochs, args.lr, model_path)
+        
+        # Preparar configuración para historial
+        train_config = {
+            'backbone': args.backbone,
+            'img_size': args.img_size,
+            'batch_size': args.batch_size,
+            'epochs': args.epochs,
+            'lr': args.lr,
+            'val_split': args.val_split,
+            'num_workers': args.num_workers or train_loader.num_workers
+        }
+        
+        train(model, train_loader, device, args.epochs, args.lr, model_path, 
+              output_dir=output_dir, config=train_config, val_loader=val_loader)
         
         if model_path.exists():
             checkpoint = torch.load(model_path, map_location=device)
@@ -241,26 +337,34 @@ def main():
             print(f"Modelo cargado desde: {args.model_path}")
         
         print("\nCargando dataset de evaluación...")
-        eval_loader = get_eval_loader(
-            data_dir=data_dir,
-            split='valid',
-            batch_size=args.batch_size,
-            img_size=args.img_size
-        )
-        print(f"Imágenes de evaluación: {len(eval_loader.dataset)}")
-        
-        metrics = evaluate(
-            model,
-            eval_loader,
-            device,
-            output_dir,
-            save_samples=args.save_samples,
-            num_samples=args.num_samples
-        )
-        
-        print(f"\n{'='*70}")
-        print("EVALUACIÓN COMPLETADA")
-        print(f"{'='*70}")
+        try:
+            eval_loader = get_eval_loader(
+                data_dir=data_dir,
+                split='valid',
+                batch_size=args.batch_size,
+                img_size=args.img_size
+            )
+            print(f"Imágenes de evaluación: {len(eval_loader.dataset)}")
+            
+            metrics = evaluate(
+                model,
+                eval_loader,
+                device,
+                output_dir,
+                save_samples=args.save_samples,
+                num_samples=args.num_samples
+            )
+            
+            print(f"\n{'='*70}")
+            print("EVALUACIÓN COMPLETADA")
+            print(f"{'='*70}")
+        except ValueError as e:
+            print(f"⚠ ADVERTENCIA: No se pudo cargar dataset de evaluación: {e}")
+            print("  El modelo se entrenó correctamente, pero la evaluación se omite.")
+            print("  Para evaluar, asegúrate de tener imágenes en:")
+            print(f"    - {data_dir}/valid/normal/ y {data_dir}/valid/defectuoso/")
+            print(f"    - O {data_dir}/normal/ y {data_dir}/defectuoso/")
+            print(f"    - O usar las carpetas numéricas (0-9) en {data_dir}/")
 
 
 if __name__ == '__main__':

@@ -25,6 +25,7 @@ from modelos.modelo2_features.feature_extractor import FeatureExtractor
 from modelos.modelo2_features.fit_distribution import DistribucionFeatures
 from modelos.modelo2_features.utils import procesar_imagen_inferencia
 from preprocesamiento import cargar_y_preprocesar_3canales
+from utils_patches_cache import cargar_parches_cache, guardar_parches_cache
 
 # Configurar logging
 logging.basicConfig(
@@ -151,6 +152,26 @@ def entrenar_modelo(
         if tamaño_imagen is None:
             tamaño_imagen = (config.IMG_SIZE, config.IMG_SIZE)
     
+    # Intentar cargar cache de parches si se usan patches
+    cache_parches = None
+    if usar_patches:
+        try:
+            # Intentar cargar desde cache en disco
+            cache_result = cargar_parches_cache(
+                str(data_dir),
+                tamaño_patch[0] if tamaño_patch else config.PATCH_SIZE,
+                overlap_percent if overlap_percent is not None else config.OVERLAP_RATIO,
+                imagenes
+            )
+            if cache_result is not None:
+                patches_por_imagen, cache_dir = cache_result
+                cache_parches = patches_por_imagen
+                logger.info(f"  ✓ Cache de parches cargado desde: {cache_dir}")
+                logger.info(f"  Total de imágenes con parches cacheados: {len([p for p in cache_parches if p is not None])}")
+        except Exception as e:
+            logger.warning(f"  No se pudo cargar cache de parches: {e}")
+            cache_parches = None
+    
     # Procesar imágenes y extraer features
     logger.info("\nProcesando imágenes y extrayendo features...")
     features_por_capa_acum = {}
@@ -192,22 +213,101 @@ def entrenar_modelo(
         patches_acumulados = []
         total_patches_en_lote = 0
         
-        for img_idx, img_path in enumerate(batch_imagenes):
-            if (img_idx + 1) % 100 == 0:
-                logger.info(f"  Procesando imagen {img_idx + 1}/{len(batch_imagenes)}...")
+        # Si hay cache, usar parches del cache directamente
+        if cache_parches is not None:
+            logger.info(f"  Usando parches desde cache...")
+            inicio_global = inicio_batch
+            for local_idx, img_path in enumerate(batch_imagenes):
+                img_idx_global = inicio_global + local_idx
+                if img_idx_global < len(cache_parches) and cache_parches[img_idx_global] is not None:
+                    patches = cache_parches[img_idx_global]
+                    # Convertir de lista de arrays a lista de arrays (ya están normalizados)
+                    patches_list = [p.copy() for p in patches]  # Copiar para evitar problemas de referencia
+                    patches_acumulados.extend(patches_list)
+                    total_patches_en_lote += len(patches_list)
             
-            patches, posiciones = procesar_imagen_para_entrenamiento(
-                img_path,
-                usar_patches,
-                tamaño_patch,
-                overlap_percent,
-                tamaño_imagen,
-                aplicar_preprocesamiento
-            )
+            # Extraer features cuando se alcanza el límite
+            if len(patches_acumulados) >= max_patches_per_feature_batch:
+                logger.info(f"  Extrayendo features de {len(patches_acumulados)} patches acumulados...")
+                patches_array = np.array(patches_acumulados)
+                
+                # Liberar lista de patches antes de convertir a array
+                del patches_acumulados
+                gc.collect()
+                
+                features_batch = extractor.extraer_features_patches(
+                    patches_array, batch_size=batch_size
+                )
+                
+                # Liberar array de patches inmediatamente después de extraer features
+                del patches_array
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                gc.collect()
+                
+                # Acumular features
+                for capa, feat in features_batch.items():
+                    if capa not in features_por_capa_acum:
+                        features_por_capa_acum[capa] = []
+                    features_por_capa_acum[capa].append(feat)
+                
+                # Liberar features_batch
+                del features_batch
+                gc.collect()
+                
+                # Reinicializar lista de patches
+                patches_acumulados = []
+        else:
+            # Procesar imágenes en paralelo para acelerar
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            import os
             
-            if len(patches) > 0:
-                patches_acumulados.extend(patches)
-                total_patches_en_lote += len(patches)
+            def procesar_imagen_paralelo(img_path):
+                """Función auxiliar para procesar una imagen en paralelo"""
+                try:
+                    patches, posiciones = procesar_imagen_para_entrenamiento(
+                        img_path,
+                        usar_patches,
+                        tamaño_patch,
+                        overlap_percent,
+                        tamaño_imagen,
+                        aplicar_preprocesamiento
+                    )
+                    return patches, posiciones, None
+                except Exception as e:
+                    return [], [], str(e)
+            
+            # Usar ThreadPoolExecutor para procesar imágenes en paralelo
+            num_workers = min(8, os.cpu_count() or 1)
+            processed_count = 0
+            
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                # Enviar todas las tareas
+                futures = {
+                    executor.submit(procesar_imagen_paralelo, img_path): img_idx
+                    for img_idx, img_path in enumerate(batch_imagenes)
+                }
+                
+                # Procesar resultados conforme se completan
+                for future in as_completed(futures):
+                    img_idx = futures[future]
+                    patches, posiciones, error = future.result()
+                    
+                    if error:
+                        logger.warning(f"  Error procesando {batch_imagenes[img_idx].name}: {error}")
+                    elif len(patches) > 0:
+                        patches_acumulados.extend(patches)
+                        total_patches_en_lote += len(patches)
+                    
+                    processed_count += 1
+                    if processed_count % 100 == 0:
+                        logger.info(f"  Procesadas {processed_count}/{len(batch_imagenes)} imágenes...")
+            
+            # Guardar cache después del primer lote si no existía
+            if batch_idx == 0 and usar_patches and tamaño_patch:
+                logger.info(f"  Guardando parches procesados en cache para reutilización...")
+                # Necesitamos procesar todas las imágenes primero para guardar el cache completo
+                # Esto se hará después de procesar todos los lotes
             
             # Extraer features cuando se alcanza el límite (más frecuente para evitar saturación)
             if len(patches_acumulados) >= max_patches_per_feature_batch:

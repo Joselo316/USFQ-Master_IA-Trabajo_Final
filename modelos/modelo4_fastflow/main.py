@@ -76,10 +76,15 @@ def train_epoch(
             with torch.cuda.amp.autocast():
                 z_list, log_det_list = model(images)
                 
-                # Calcular pérdida
+                # Calcular pérdida (negative log-likelihood)
+                # Normalizar por número de elementos para valores más interpretables
                 loss = 0.0
                 for z, log_det in zip(z_list, log_det_list):
-                    log_prob = -0.5 * torch.sum(z ** 2, dim=(1, 2, 3)) + log_det
+                    # Calcular número de elementos en z para normalización
+                    num_elements = z.shape[1] * z.shape[2] * z.shape[3]  # C * H * W
+                    # Log-likelihood: -0.5 * sum(z^2) + log_det
+                    # Normalizar por número de elementos para estabilidad numérica
+                    log_prob = (-0.5 * torch.sum(z ** 2, dim=(1, 2, 3)) + log_det) / num_elements
                     loss -= log_prob.mean()
                 
                 # Normalizar por accumulation_steps
@@ -90,10 +95,15 @@ def train_epoch(
             # Forward pass normal
             z_list, log_det_list = model(images)
             
-            # Calcular pérdida
+            # Calcular pérdida (negative log-likelihood)
+            # Normalizar por número de elementos para valores más interpretables
             loss = 0.0
             for z, log_det in zip(z_list, log_det_list):
-                log_prob = -0.5 * torch.sum(z ** 2, dim=(1, 2, 3)) + log_det
+                # Calcular número de elementos en z para normalización
+                num_elements = z.shape[1] * z.shape[2] * z.shape[3]  # C * H * W
+                # Log-likelihood: -0.5 * sum(z^2) + log_det
+                # Normalizar por número de elementos para estabilidad numérica
+                log_prob = (-0.5 * torch.sum(z ** 2, dim=(1, 2, 3)) + log_det) / num_elements
                 loss -= log_prob.mean()
             
             # Normalizar por accumulation_steps
@@ -143,18 +153,28 @@ def validate_epoch(
                 with torch.cuda.amp.autocast():
                     z_list, log_det_list = model(images)
                     
-                    # Calcular pérdida
+                    # Calcular pérdida (negative log-likelihood)
+                    # Normalizar por número de elementos para valores más interpretables
                     loss = 0.0
                     for z, log_det in zip(z_list, log_det_list):
-                        log_prob = -0.5 * torch.sum(z ** 2, dim=(1, 2, 3)) + log_det
+                        # Calcular número de elementos en z para normalización
+                        num_elements = z.shape[1] * z.shape[2] * z.shape[3]  # C * H * W
+                        # Log-likelihood: -0.5 * sum(z^2) + log_det
+                        # Normalizar por número de elementos para estabilidad numérica
+                        log_prob = (-0.5 * torch.sum(z ** 2, dim=(1, 2, 3)) + log_det) / num_elements
                         loss -= log_prob.mean()
             else:
                 z_list, log_det_list = model(images)
                 
-                # Calcular pérdida
+                # Calcular pérdida (negative log-likelihood)
+                # Normalizar por número de elementos para valores más interpretables
                 loss = 0.0
                 for z, log_det in zip(z_list, log_det_list):
-                    log_prob = -0.5 * torch.sum(z ** 2, dim=(1, 2, 3)) + log_det
+                    # Calcular número de elementos en z para normalización
+                    num_elements = z.shape[1] * z.shape[2] * z.shape[3]  # C * H * W
+                    # Log-likelihood: -0.5 * sum(z^2) + log_det
+                    # Normalizar por número de elementos para estabilidad numérica
+                    log_prob = (-0.5 * torch.sum(z ** 2, dim=(1, 2, 3)) + log_det) / num_elements
                     loss -= log_prob.mean()
             
             total_loss += loss.item()

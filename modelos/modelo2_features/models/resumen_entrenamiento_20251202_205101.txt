@@ -1,0 +1,13 @@
+RESUMEN DEL ENTRENAMIENTO DE VARIANTES DEL MODELO 2
+======================================================================
+Fecha: 2025-12-02 20:51:01
+Directorio de datos: E:\Dataset\preprocesadas
+Batch size: 32
+Modo: PATCHES
+
+Resultados:
+  ResNet18: FALLIDO - Tiempo: 0 min 3.5 seg
+  ResNet50: FALLIDO - Tiempo: 0 min 3.6 seg
+  WideResNet50-2: FALLIDO - Tiempo: 0 min 4.0 seg
+
+Tiempo total: 0 min 11.1 seg

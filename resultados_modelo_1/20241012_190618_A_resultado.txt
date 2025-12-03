@@ -1,0 +1,16 @@
+RESULTADO DE DETECCIÓN DE ANOMALÍAS
+======================================================================
+Imagen: E:/Dataset/Validacion/Fallas/20241012_190618_A.jpg
+Estado: NORMAL
+
+Estadísticas del error:
+  Error medio: 0.000132
+  Desviación estándar: 0.000852
+  Error máximo: 0.103347
+  Error mínimo: 0.000000
+
+Configuración del modelo:
+  Tipo: Modelo original (entrenado desde cero)
+
+Tiempo de inferencia: 1.80 segundos
+Número de parches: 25

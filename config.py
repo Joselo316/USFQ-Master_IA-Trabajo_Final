@@ -32,6 +32,11 @@ OVERLAP_RATIO = 0.1
 # Tamaño de imagen objetivo para redimensionamiento (si se requiere)
 IMG_SIZE = 256
 
+# Máximo número de imágenes a cachear en memoria para parches (LRU cache)
+# Reduce este valor si tienes problemas de memoria RAM
+# 0 = desactivar cache en memoria (solo carga lazy desde disco)
+MAX_CACHE_IMAGENES = 50
+
 
 # ============================================================================
 # PARÁMETROS DE INFERENCIA
@@ -143,4 +148,42 @@ OUTPUT_DIR_MODEL3 = PROJECT_ROOT / "modelos" / "modelo3_transformer" / "outputs"
 OUTPUT_DIR_MODEL1.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR_MODEL2.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR_MODEL3.mkdir(parents=True, exist_ok=True)
+
+# ============================================================================
+# CACHE DE PARCHES
+# ============================================================================
+# Directorio base para cache de parches procesados
+# Los parches se guardan aquí para reutilización entre entrenamientos de diferentes modelos
+CACHE_PATCHES_DIR = PROJECT_ROOT / "cache_patches"
+
+# Crear directorio de cache si no existe
+CACHE_PATCHES_DIR.mkdir(parents=True, exist_ok=True)
+
+# ============================================================================
+# RUTAS DE PARCHES PRE-PROCESADOS
+# ============================================================================
+# IMPORTANTE: Configurar la ruta donde se guardarán los parches pre-procesados.
+# Los parches se guardan como archivos individuales en una estructura de carpetas.
+# Ejemplo: PARCHES_OUTPUT_PATH = r"E:\Dataset\parches_256_overlap0.3"
+PARCHES_OUTPUT_PATH = r"E:\Dataset\parches_256_overlap0.1"  # CAMBIAR ESTA RUTA SEGÚN TU CONFIGURACIÓN
+
+# Función para obtener la ruta de parches según parámetros
+def obtener_ruta_parches(patch_size: int = 256, overlap_ratio: float = 0.1) -> str:
+    """
+    Obtiene la ruta donde se guardan los parches pre-procesados.
+    
+    Args:
+        patch_size: Tamaño de parche
+        overlap_ratio: Ratio de solapamiento
+    
+    Returns:
+        Ruta al directorio de parches
+    """
+    # Si PARCHES_OUTPUT_PATH está configurado, usarlo
+    # Si no, crear ruta basada en parámetros
+    if PARCHES_OUTPUT_PATH:
+        return PARCHES_OUTPUT_PATH
+    else:
+        # Crear ruta automática basada en parámetros
+        return str(PROJECT_ROOT / "parches_preprocesados" / f"patches_{patch_size}_overlap{overlap_ratio:.2f}")
 

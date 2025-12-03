@@ -18,6 +18,10 @@ TesisMDP/
 ├── evaluar_modelo4.py           # Script de evaluación del modelo 4
 ├── evaluar_modelo5.py           # Script de evaluación del modelo 5
 ├── requirements.txt             # Dependencias del proyecto
+├── utils_patches_cache.py       # Utilidades para cache de parches compartido
+├── plot_all_training_curves.py  # Script para generar gráficas de curvas de aprendizaje
+├── cache_patches/               # Cache de parches procesados (generado automáticamente)
+├── curvas_entrenamiento/        # Gráficas de curvas de aprendizaje (generado automáticamente)
 ├── preprocesamiento/
 │   ├── preprocesamiento.py      # Preprocesamiento común de 3 canales
 │   └── correct_board.py         # Script de corrección de bordes (ya aplicado)
@@ -140,6 +144,78 @@ El script:
 - Sin reescalar: Para modelos que usan segmentación en parches (modelos 1, 2, 3)
 - Reescalado: Para modelos que redimensionan la imagen completa (modelos 4, 5)
 
+## Sistema de Cache de Parches
+
+El proyecto incluye un **sistema de cache compartido de parches** que permite reutilizar los parches procesados entre diferentes entrenamientos de modelos, evitando recalcularlos múltiples veces.
+
+### ¿Cómo funciona?
+
+1. **Primera ejecución** (por ejemplo, entrenando el Modelo 1):
+   - El sistema procesa todas las imágenes y divide cada una en parches según los parámetros (`patch_size`, `overlap_ratio`)
+   - Los parches procesados se guardan automáticamente en disco en formato comprimido (NPZ)
+   - El cache se identifica por: `patch_size`, `overlap_ratio` y un hash del dataset
+
+2. **Ejecuciones posteriores** (Modelos 2, 3, o reentrenamiento del Modelo 1):
+   - El sistema busca automáticamente si existe un cache válido con los mismos parámetros
+   - Si encuentra el cache, carga los parches desde disco (muy rápido)
+   - Si no encuentra cache, procesa las imágenes normalmente y crea un nuevo cache
+
+### Ubicación del Cache
+
+El cache se guarda en:
+```
+TesisMDP/cache_patches/patches_[size]x[size]_overlap[ratio]_[hash]/
+```
+
+Cada imagen se guarda como:
+- `patches_000000.npz`, `patches_000001.npz`, etc.
+- `metadata.pkl`: Metadatos del cache (parámetros, rutas, etc.)
+
+### Ventajas
+
+- **Ahorro de tiempo**: Los parches se calculan una sola vez y se reutilizan en todos los modelos
+- **Transparente**: Funciona automáticamente sin configuración adicional
+- **Eficiente**: Formato NPZ comprimido para ahorrar espacio en disco
+- **Compatible**: Verifica automáticamente que los parámetros y el dataset coincidan
+
+### Uso Automático
+
+El cache se usa automáticamente cuando:
+- Entrenas modelos que usan segmentación en parches (Modelos 1, 2, 3)
+- Los parámetros de `patch_size` y `overlap_ratio` coinciden
+- El dataset no ha cambiado (verificado mediante hash)
+
+**Ejemplo de flujo**:
+```bash
+# Primera vez: Entrenar Modelo 1 (crea el cache)
+python train_all_models.py --modelo 1
+# → Procesa imágenes y guarda cache en cache_patches/
+
+# Segunda vez: Entrenar Modelo 2 (usa el cache)
+python train_all_models.py --modelo 2
+# → Carga parches desde cache (mucho más rápido)
+
+# Tercera vez: Entrenar Modelo 3 (usa el mismo cache)
+python train_all_models.py --modelo 3
+# → Carga parches desde cache (mucho más rápido)
+```
+
+### Notas Importantes
+
+- El cache se identifica por `patch_size`, `overlap_ratio` y hash del dataset
+- Si cambias los parámetros o el dataset, se crea un nuevo cache automáticamente
+- Puedes eliminar manualmente la carpeta `cache_patches/` si necesitas regenerar el cache
+- El primer modelo que procese las imágenes creará el cache; los demás lo reutilizarán
+
+### Optimización de Rendimiento
+
+El sistema también incluye:
+- **Procesamiento paralelo**: Hasta 8 workers procesando imágenes simultáneamente
+- **Cache en memoria**: Durante el entrenamiento, los parches se mantienen en memoria para acceso rápido
+- **Carga eficiente**: Los parches se cargan desde disco solo cuando es necesario
+
+Esto resulta en una **reducción significativa del tiempo de entrenamiento** cuando se entrenan múltiples modelos con los mismos parámetros de segmentación.
+
 ## Configuración
 
 ### 1. Configurar rutas en config.py
@@ -246,6 +322,7 @@ python train_all_models.py --all
 - Usa `--redimensionar` para usar dataset reescalado (para modelos 4, 5)
 - Los modelos se guardan en `models/` o `models_256/` según corresponda
 - El script calcula automáticamente batch_size óptimo según tu GPU
+- **Cache de parches**: Los parches procesados se guardan automáticamente y se reutilizan entre modelos
 
 ### Entrenar modelos individuales
 
@@ -438,6 +515,14 @@ python train_all_models.py --model4 --model5 --data_dir "ruta/al/dataset"
 
 ## Uso (Inferencia)
 
+**Nota importante**: Todos los modelos aplican automáticamente el **preprocesamiento completo** durante la inferencia:
+1. **Eliminación de bordes**: Usa `auto_crop_borders_improved()` para recortar bordes negros
+2. **Corrección de orientación**: Corrige la inclinación del tablero si es necesario
+3. **Conversión a 3 canales**: Aplica `preprocesar_imagen_3canales()` para generar la imagen RGB de 3 canales
+4. **Inferencia**: Procesa la imagen preprocesada con el modelo
+
+Esto garantiza que las imágenes de inferencia reciban el mismo tratamiento que las imágenes de entrenamiento.
+
 ### Modelo 1: Autoencoder
 
 ```bash
@@ -586,7 +671,7 @@ python main.py --image_path "imagen.png" --model_path "models/autoencoder_resnet
 - Aunque ImageNet es diferente a tableros laminados, las features de bajo nivel (bordes, texturas) son transferibles
 - Para datasets muy pequeños, es mejor congelar el encoder
 - Para datasets grandes, el fine-tuning puede mejorar aún más
-- El modelo detecta automáticamente si las imágenes están preprocesadas (3 canales) o si necesita aplicar el preprocesamiento
+- **Preprocesamiento automático**: El script de inferencia aplica automáticamente eliminación de bordes y conversión a 3 canales antes de inferir
 
 ### Modelo 2: Features
 
@@ -1006,9 +1091,60 @@ python main.py --mode eval --model_path models/stpm_resnet18_256.pt --save_sampl
 
 ### Salidas
 
+- `models/stpm_*.pt`: Modelo entrenado guardado (checkpoint con estado del modelo y optimizador)
+- `outputs/training_history_stpm_*.json`: Historial completo de entrenamiento (pérdidas por época, learning rate, configuración)
+- `models/stpm_*.pt`: Modelo entrenado guardado (checkpoint con estado del modelo y optimizador)
+- `outputs/training_history_stpm_*.json`: Historial completo de entrenamiento (pérdidas por época, learning rate, configuración)
 - `outputs/results_stpm_*.csv`: Resultados por imagen (ruta, etiqueta, score, predicción)
 - `outputs/metrics_stpm_*.json`: Métricas agregadas (AUROC imagen)
 - `outputs/anomaly_map_*.png`: Mapas de anomalía superpuestos sobre imágenes (si `--save_samples`)
+
+## Curvas de Aprendizaje
+
+Todos los modelos que tienen entrenamiento iterativo guardan automáticamente el historial de entrenamiento en formato JSON:
+
+- **Modelo 1 (Autoencoder)**: `modelos/modelo1_autoencoder/models/training_history_*.json`
+- **Modelo 4 (FastFlow)**: `modelos/modelo4_fastflow/outputs/training_history_*.json`
+- **Modelo 5 (STPM)**: `modelos/modelo5_stpm/outputs/training_history_*.json`
+
+**Nota**: Los modelos 2 y 3 no tienen entrenamiento iterativo (solo ajustan distribuciones/clasificadores), por lo que no generan curvas de aprendizaje.
+
+### Visualizar Curvas de Aprendizaje
+
+Para generar gráficas de las curvas de aprendizaje:
+
+```bash
+# Generar gráficas de todos los modelos que tienen historial
+python plot_all_training_curves.py
+
+# Generar gráficas solo para un modelo específico
+python plot_all_training_curves.py --modelo 1
+
+# Generar gráficas desde un archivo específico
+python plot_all_training_curves.py --history_file "modelos/modelo1_autoencoder/models/training_history_autoencoder_normal_20240101_120000.json"
+
+# Especificar directorio de salida
+python plot_all_training_curves.py --output_dir "mis_graficas"
+```
+
+El script:
+- Busca automáticamente archivos `training_history_*.json` en cada modelo
+- Genera gráficas con 4 paneles:
+  1. **Pérdida de Entrenamiento y Validación**: Curvas de loss por época
+  2. **Diferencia Train-Val**: Diferencia entre pérdidas (indica overfitting)
+  3. **Learning Rate**: Evolución del learning rate
+  4. **Configuración y Estadísticas**: Parámetros y mejores resultados
+
+Las gráficas se guardan en `curvas_entrenamiento/modeloX/curvas_modeloX.png`
+
+### Visualizar Curvas del Modelo 1 (Individual)
+
+También puedes usar el script específico del modelo 1:
+
+```bash
+cd modelos/modelo1_autoencoder
+python plot_training_history.py --history "models/training_history_autoencoder_normal_20240101_120000.json"
+```
 
 ## Comparación de Métodos
 
@@ -1060,7 +1196,22 @@ python evaluar_all_models.py --modelo 4
 
 # Evaluar solo modelo 5
 python evaluar_all_models.py --modelo 5
+
+# Evaluar con imágenes redimensionadas
+python evaluar_all_models.py --all --redimensionar
 ```
+
+**Nota importante sobre preprocesamiento**:
+- Por defecto, los scripts de evaluación asumen que las imágenes ya están preprocesadas (sin bordes y en 3 canales)
+- Si necesitas evaluar imágenes originales (sin preprocesar), usa el parámetro `--aplicar_preprocesamiento`:
+  ```bash
+  python evaluar_all_models.py --modelo all --aplicar_preprocesamiento
+  ```
+- Cuando `--aplicar_preprocesamiento` está activo, todos los modelos aplican automáticamente:
+  1. Eliminación de bordes negros
+  2. Corrección de orientación
+  3. Conversión a 3 canales
+  4. Redimensionado (si es necesario)
 
 **Resultados**:
 - Se guardan en `evaluaciones/modeloX/` o `evaluaciones/modeloX_256/` según corresponda

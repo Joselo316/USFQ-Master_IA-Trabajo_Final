@@ -28,9 +28,25 @@ def get_train_loader(
     data_dir: Path,
     batch_size: int = 32,
     img_size: int = 256,
-    num_workers: int = 4
-) -> DataLoader:
-    """Crea DataLoader para entrenamiento (solo imágenes normales)."""
+    num_workers: int = 4,
+    val_split: float = 0.15,
+    return_val_loader: bool = False
+):
+    """
+    Crea DataLoader para entrenamiento (solo imágenes normales).
+    Si return_val_loader=True, también retorna un val_loader dividiendo el dataset.
+    
+    Args:
+        val_split: Proporción de datos para validación (default: 0.15)
+        return_val_loader: Si True, retorna (train_loader, val_loader), sino solo train_loader
+    
+    Returns:
+        train_loader o (train_loader, val_loader) si return_val_loader=True
+    """
+    import os
+    from torch.utils.data import random_split
+    
+    # Cargar todas las imágenes normales
     dataset = MDPDataset(
         data_dir=data_dir,
         split='train',
@@ -38,15 +54,50 @@ def get_train_loader(
         img_size=img_size
     )
     
-    loader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers,
-        pin_memory=True
-    )
-    
-    return loader
+    # Dividir en train/val si se solicita
+    if return_val_loader and val_split > 0:
+        val_size = int(len(dataset) * val_split)
+        train_size = len(dataset) - val_size
+        train_dataset, val_dataset = random_split(
+            dataset, [train_size, val_size],
+            generator=torch.Generator().manual_seed(42)
+        )
+        
+        # Optimizar num_workers automáticamente
+        if num_workers is None:
+            num_workers = min(8, os.cpu_count() or 1)
+        
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=True,
+            prefetch_factor=2 if num_workers > 0 else None,
+            persistent_workers=True if num_workers > 0 else False
+        )
+        
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=True,
+            prefetch_factor=2 if num_workers > 0 else None,
+            persistent_workers=True if num_workers > 0 else False
+        )
+        
+        return train_loader, val_loader
+    else:
+        # Sin división, retornar solo train_loader
+        loader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=True
+        )
+        return loader
 
 
 def get_eval_loader(

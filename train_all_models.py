@@ -147,12 +147,36 @@ def entrenar_modelo1(args):
         "--output_dir", output_dir
     ]
     
+    # Por defecto usar segmentación en parches de 256x256 (NO reescalar imagen completa)
+    # Solo usar img_size si explícitamente se especifica --img_size sin --use_segmentation
+    usar_segmentacion = False
     if args.use_segmentation:
+        # Usuario explícitamente activó segmentación
+        usar_segmentacion = True
         cmd.append("--use_segmentation")
         cmd.extend(["--patch_size", str(args.patch_size)])
         cmd.extend(["--overlap_ratio", str(args.overlap_ratio)])
-    else:
+    elif args.img_size is not None:
+        # Usuario especificó img_size explícitamente (sin segmentación)
         cmd.extend(["--img_size", str(args.img_size)])
+    else:
+        # Por defecto: usar segmentación en parches de 256x256
+        usar_segmentacion = True
+        cmd.append("--use_segmentation")
+        cmd.extend(["--patch_size", str(args.patch_size)])
+        cmd.extend(["--overlap_ratio", str(args.overlap_ratio)])
+    
+    # Si se usa segmentación, verificar si existen parches pre-procesados y notificar
+    if usar_segmentacion:
+        parches_dir = config.obtener_ruta_parches(args.patch_size, args.overlap_ratio)
+        parches_path = Path(parches_dir)
+        if parches_path.exists():
+            print(f"  ✓ Parches pre-procesados encontrados en: {parches_dir}")
+            print(f"    El entrenamiento usará estos parches automáticamente")
+        else:
+            print(f"  ℹ Parches pre-procesados no encontrados en: {parches_dir}")
+            print(f"    Se procesarán las imágenes durante el entrenamiento")
+            print(f"    Para acelerar, ejecuta: python preprocesar_parches.py")
     
     if args.model1_transfer_learning:
         cmd.append("--use_transfer_learning")
@@ -205,18 +229,26 @@ def entrenar_modelo2(args):
     cmd = [
         sys.executable,
         str(TRAIN_MODEL2),
-        "--data", data_dir,
+        "--data_dir", data_dir,
         "--batch_size", str(batch_size_modelo2),
         "--output_dir", output_dir
     ]
     
-    if args.model2_backbone:
-        cmd.extend(["--backbone", args.model2_backbone])
+    # NOTA: train_all_variants.py entrena automáticamente todas las variantes (resnet18, resnet50, wide_resnet50_2)
+    # No acepta --backbone como argumento. Si se quiere entrenar solo una variante, usar train.py directamente.
     
-    # Por defecto NO usar patches (resize completo)
-    if not args.use_segmentation:
+    # Por defecto usar patches de 256x256 (NO reescalar imagen completa)
+    # Solo usar img_size si explícitamente se especifica --img_size sin --use_segmentation
+    if args.use_segmentation:
+        # Usuario explícitamente activó segmentación
+        cmd.append("--usar_patches")
+        cmd.extend(["--patch_size", str(args.patch_size), str(args.patch_size)])
+        cmd.extend(["--overlap_percent", str(args.overlap_ratio)])
+    elif args.img_size is not None:
+        # Usuario especificó img_size explícitamente (sin patches)
         cmd.extend(["--img_size", str(args.img_size)])
     else:
+        # Por defecto: usar patches de 256x256
         cmd.append("--usar_patches")
         cmd.extend(["--patch_size", str(args.patch_size), str(args.patch_size)])
         cmd.extend(["--overlap_percent", str(args.overlap_ratio)])
@@ -271,11 +303,23 @@ def entrenar_modelo3(args):
         "--output_dir", output_dir
     ]
     
-    if args.model3_patch_size:
-        cmd.extend(["--patch_size", str(args.model3_patch_size)])
-    
-    if args.model3_overlap:
-        cmd.extend(["--overlap", str(args.model3_overlap)])
+    # Por defecto usar parches de 256x256 (NO reescalar imagen completa)
+    # Solo usar img_size si explícitamente se especifica sin usar parches
+    if args.use_segmentation or (args.model3_patch_size is None and args.img_size is None):
+        # Por defecto o explícitamente: usar parches
+        cmd.append("--usar_patches")
+        if args.model3_patch_size:
+            cmd.extend(["--patch_size", str(args.model3_patch_size)])
+        else:
+            cmd.extend(["--patch_size", str(args.patch_size)])  # Usar patch_size común
+        
+        if args.model3_overlap:
+            cmd.extend(["--overlap", str(args.model3_overlap)])
+        else:
+            cmd.extend(["--overlap", str(args.overlap_ratio)])  # Usar overlap_ratio común
+    elif args.img_size is not None:
+        # Usuario especificó img_size explícitamente (sin parches)
+        cmd.extend(["--img_size", str(args.img_size)])
     
     print(f"Comando: {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=PROJECT_ROOT)
@@ -320,13 +364,16 @@ def entrenar_modelo4(args):
     else:
         batch_size_modelo4 = args.batch_size or 16
     
+    # Modelo 4 siempre requiere img_size. Usar valor por defecto si no se especifica
+    img_size_modelo4 = args.img_size if args.img_size is not None else 256
+    
     cmd = [
         sys.executable,
         str(TRAIN_MODEL4),
         "--mode", "train_eval",
         "--data_dir", data_dir,
         "--backbone", args.model4_backbone,
-        "--img_size", str(args.img_size),
+        "--img_size", str(img_size_modelo4),
         "--batch_size", str(batch_size_modelo4),
         "--epochs", str(args.epochs),
         "--lr", str(args.model4_lr),
@@ -415,13 +462,16 @@ def entrenar_modelo5(args):
     else:
         batch_size_modelo5 = args.batch_size or 16
     
+    # Modelo 5 siempre requiere img_size. Usar valor por defecto si no se especifica
+    img_size_modelo5 = args.img_size if args.img_size is not None else 256
+    
     cmd = [
         sys.executable,
         str(TRAIN_MODEL5),
         "--mode", "train_eval",
         "--data_dir", data_dir,
         "--backbone", args.model5_backbone,
-        "--img_size", str(args.img_size),
+        "--img_size", str(img_size_modelo5),
         "--batch_size", str(batch_size_modelo5),
         "--epochs", str(args.epochs),
         "--lr", str(args.model5_lr),
@@ -560,7 +610,7 @@ Ejemplos de uso:
     parser.add_argument(
         '--use_segmentation',
         action='store_true',
-        help='Usar segmentación en parches para modelo 1'
+        help='Usar segmentación en parches para modelo 1 (por defecto: SÍ, usa parches de 256x256)'
     )
     parser.add_argument(
         '--patch_size',
@@ -571,14 +621,14 @@ Ejemplos de uso:
     parser.add_argument(
         '--overlap_ratio',
         type=float,
-        default=0.3,
+        default=0.1,
         help='Ratio de solapamiento entre parches (default: 0.3)'
     )
     parser.add_argument(
         '--img_size',
         type=int,
-        default=256,
-        help='Tamaño de imagen cuando NO se usa segmentación (default: 256)'
+        default=None,
+        help='Tamaño de imagen cuando NO se usa segmentación. Si se especifica, desactiva el uso de parches por defecto (default: None, usa parches de 256x256)'
     )
     parser.add_argument(
         '--model1_transfer_learning',

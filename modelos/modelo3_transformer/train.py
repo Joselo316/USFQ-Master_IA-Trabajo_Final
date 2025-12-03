@@ -23,6 +23,7 @@ from modelos.modelo3_transformer.classifiers import crear_clasificador, AnomalyC
 from modelos.modelo3_transformer.vit_feature_extractor import ViTFeatureExtractor
 from modelos.modelo3_transformer.utils import procesar_imagen_inferencia
 from preprocesamiento import cargar_y_preprocesar_3canales
+from utils_patches_cache import cargar_parches_cache, guardar_parches_cache
 
 
 def obtener_imagenes_dataset(data_dir: Path) -> List[Path]:
@@ -102,36 +103,132 @@ def entrenar_modelo(
     todas_features = []
     todas_posiciones = []
     
-    for idx, img_path in enumerate(imagenes, 1):
-        if idx % 100 == 0:
-            print(f"  Procesando {idx}/{len(imagenes)}...")
+    # Intentar cargar parches desde cache si se usan patches
+    cache_parches = None
+    if usar_patches and patch_size:
+        overlap_val = overlap if overlap else 0.3
+        print(f"  Buscando cache de parches (patch_size={patch_size}, overlap={overlap_val})...")
+        cache_result = cargar_parches_cache(
+            str(data_dir),
+            patch_size,
+            overlap_val,
+            imagenes
+        )
         
-        try:
-            # Procesar imagen y generar parches
-            parches, posiciones, tamaño_orig = procesar_imagen_inferencia(
-                str(img_path),
-                patch_size=patch_size if usar_patches else None,
-                overlap=overlap if usar_patches else 0.0,
-                aplicar_preprocesamiento=aplicar_preprocesamiento,
-                usar_patches=usar_patches,
-                img_size=img_size
+        if cache_result is not None:
+            cache_parches, cache_dir = cache_result
+            print(f"  ✓ Cache encontrado y cargado desde: {cache_dir}")
+        else:
+            print(f"  Cache no encontrado. Se procesarán las imágenes...")
+    
+    if cache_parches is not None:
+        # Usar parches desde cache
+        print("  Usando parches desde cache...")
+        parches_por_imagen = []
+        for img_idx, patches in enumerate(cache_parches):
+            if patches is not None and len(patches) > 0:
+                # Convertir lista de arrays a array numpy
+                parches_array = np.array(patches)
+                parches_por_imagen.append((parches_array, []))  # No guardamos posiciones en cache
+            else:
+                parches_por_imagen.append(None)
+    else:
+        # Procesar imágenes en paralelo
+        print("  Usando procesamiento paralelo para cargar y dividir imágenes...")
+        
+        # Función auxiliar para procesar una imagen (solo carga y división, NO extracción de features)
+        def procesar_imagen_paralelo(img_path):
+            """Procesa una imagen y genera parches en paralelo (sin extraer features)"""
+            try:
+                # Procesar imagen y generar parches
+                parches, posiciones, tamaño_orig = procesar_imagen_inferencia(
+                    str(img_path),
+                    patch_size=patch_size if usar_patches else None,
+                    overlap=overlap if usar_patches else 0.0,
+                    aplicar_preprocesamiento=aplicar_preprocesamiento,
+                    usar_patches=usar_patches,
+                    img_size=img_size
+                )
+                
+                if len(parches) == 0:
+                    return None, None, None
+                
+                # Convertir parches a array numpy
+                parches_array = np.array(parches)
+                
+                return parches_array, posiciones, None
+            except Exception as e:
+                return None, None, str(e)
+        
+        # Procesar imágenes en paralelo usando ThreadPoolExecutor (solo carga y división)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import os
+        
+        num_workers = min(8, os.cpu_count() or 1)
+        processed_count = 0
+        
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            # Enviar todas las tareas
+            futures = {
+                executor.submit(procesar_imagen_paralelo, img_path): idx
+                for idx, img_path in enumerate(imagenes, 1)
+            }
+            
+            # Procesar resultados conforme se completan
+            resultados = {}
+            for future in as_completed(futures):
+                idx = futures[future]
+                parches_array, posiciones, error = future.result()
+                
+                if error:
+                    print(f"  ERROR procesando {imagenes[idx-1].name}: {error}")
+                elif parches_array is not None and posiciones is not None:
+                    resultados[idx] = (parches_array, posiciones)
+                
+                processed_count += 1
+                if processed_count % 100 == 0:
+                    print(f"  Cargadas y divididas {processed_count}/{len(imagenes)} imágenes...", end='\r')
+        
+        print()  # Nueva línea después del progreso
+        
+        # Convertir resultados a formato de cache
+        parches_por_imagen = []
+        patches_para_cache = []
+        for idx in sorted(resultados.keys()):
+            parches_array, posiciones = resultados[idx]
+            parches_por_imagen.append((parches_array, posiciones))
+            # Convertir array numpy a lista de arrays para el cache
+            patches_para_cache.append([parches_array[i] for i in range(len(parches_array))])
+        
+        # Guardar en cache para reutilización futura
+        if usar_patches and patch_size:
+            print("  Guardando parches en cache para reutilización...")
+            guardar_parches_cache(
+                str(data_dir),
+                patch_size,
+                overlap if overlap else 0.3,
+                patches_para_cache,
+                imagenes
             )
-            
-            if len(parches) == 0:
-                continue
-            
-            # Convertir parches a array numpy
-            parches_array = np.array(parches)
-            
-            # Extraer features
+    
+    # Extraer features secuencialmente (ViT no es thread-safe)
+    print("  Extrayendo features de parches procesados...")
+    for idx, (parches_array, posiciones) in enumerate(parches_por_imagen):
+        if parches_array is not None:
+            # Extraer features (secuencial, pero parches ya están procesados)
             features = extractor.extraer_features(parches_array, mostrar_progreso=False)
             
             todas_features.append(features)
-            todas_posiciones.extend(posiciones)
+            if posiciones:
+                todas_posiciones.extend(posiciones)
+            else:
+                # Si no hay posiciones (desde cache), crear posiciones dummy
+                todas_posiciones.extend([(0, 0)] * len(parches_array))
             
-        except Exception as e:
-            print(f"  ERROR procesando {img_path.name}: {e}")
-            continue
+            if len(todas_features) % 100 == 0:
+                print(f"  Extraídas features de {len(todas_features)} imágenes...", end='\r')
+    
+    print()  # Nueva línea después del progreso
     
     if len(todas_features) == 0:
         print("ERROR: No se pudieron extraer features de ninguna imagen")
