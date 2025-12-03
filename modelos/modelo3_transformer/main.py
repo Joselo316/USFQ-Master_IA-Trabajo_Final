@@ -66,7 +66,7 @@ def main():
         help=f'Tamaño de los parches (solo si --usar_patches, default: {config.PATCH_SIZE})'
     )
     parser.add_argument(
-        '--overlap_ratio_ratio',
+        '--overlap_ratio',
         type=float,
         default=None,
         help=f'Ratio de solapamiento entre parches 0.0-1.0 (solo si --usar_patches, default: {config.OVERLAP_RATIO})'
@@ -100,12 +100,6 @@ def main():
         type=str,
         default='google/vit-base-patch16-224',
         help='Nombre del modelo ViT preentrenado'
-    )
-    parser.add_argument(
-        '--aplicar_preprocesamiento',
-        action='store_true',
-        default=False,
-        help='Aplicar preprocesamiento de 3 canales (default: False, imágenes ya preprocesadas)'
     )
 
     args = parser.parse_args()
@@ -141,7 +135,7 @@ def main():
     print(f"Modelo ViT: {args.model_name}")
     print(f"Tamaño de patch: {patch_size}")
     print(f"Solapamiento: {overlap_ratio*100:.1f}%")
-    print(f"Preprocesamiento: {'Sí' if args.aplicar_preprocesamiento else 'No'}")
+    print(f"Preprocesamiento: Siempre aplicado (eliminar bordes + 3 canales)")
     print("="*70)
     
     # Cargar modelo
@@ -185,11 +179,14 @@ def main():
     
     # Procesar imagen y generar parches
     print(f"\nProcesando imagen: {args.imagen}...")
+    # Siempre aplicar preprocesamiento completo (eliminar bordes + 3 canales)
     parches, posiciones, tamaño_orig = procesar_imagen_inferencia(
         args.imagen,
-        patch_size=patch_size,
-        overlap_ratio=overlap_ratio,
-        aplicar_preprocesamiento=args.aplicar_preprocesamiento
+        patch_size=patch_size if args.usar_patches else None,
+        overlap_ratio=overlap_ratio if args.usar_patches else None,
+        aplicar_preprocesamiento=True,  # Siempre aplicar preprocesamiento
+        usar_patches=args.usar_patches,
+        img_size=img_size if not args.usar_patches else None
     )
     
     num_parches = len(parches)

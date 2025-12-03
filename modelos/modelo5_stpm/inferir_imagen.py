@@ -431,8 +431,15 @@ def main():
         help='Solapamiento entre parches 0.0-1.0 (default: 0.1)'
     )
     parser.add_argument(
-        '--no_parches',
+        '--usar_patches',
         action='store_true',
+        default=True,
+        help='Usar parches: divide la imagen en parches SIN redimensionar (default: True)'
+    )
+    parser.add_argument(
+        '--no_parches',
+        dest='usar_patches',
+        action='store_false',
         help='Redimensionar imagen completa en lugar de usar parches (default: usar parches)'
     )
     parser.add_argument(
@@ -457,7 +464,7 @@ def main():
             backbone=args.backbone,
             patch_size=args.patch_size,
             overlap_ratio=args.overlap_ratio,
-            usar_parches=not args.no_parches,
+            usar_parches=args.usar_patches,
             img_size=args.img_size,
             output_dir=args.output_dir
         )

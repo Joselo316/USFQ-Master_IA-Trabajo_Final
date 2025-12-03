@@ -16,6 +16,7 @@ from typing import List, Tuple, Optional
 
 # Importar preprocesamiento común
 from preprocesamiento import preprocesar_imagen_3canales, cargar_y_preprocesar_3canales
+from preprocesamiento.correct_board import auto_crop_borders_improved
 import config
 
 
@@ -23,7 +24,7 @@ def procesar_imagen_inferencia(
     ruta_imagen: str,
     tamaño_patch: Optional[Tuple[int, int]] = None,
     stride: Optional[int] = None,
-    overlap_percent: Optional[float] = None,
+    overlap_ratio: Optional[float] = None,
     tamaño_imagen: Optional[Tuple[int, int]] = None,
     aplicar_preprocesamiento: bool = False,
     usar_patches: bool = False
@@ -35,7 +36,7 @@ def procesar_imagen_inferencia(
         ruta_imagen: Ruta a la imagen
         tamaño_patch: Tamaño de los patches (alto, ancho). Si None y usar_patches=False, se usa tamaño_imagen
         stride: Paso entre patches. Si None, se calcula según overlap_percent
-        overlap_percent: Porcentaje de solapamiento (0.0-1.0)
+        overlap_ratio: Ratio de solapamiento (0.0-1.0)
         tamaño_imagen: Tamaño para redimensionar (por defecto: config.IMG_SIZE si usar_patches=False)
         aplicar_preprocesamiento: Si True, aplica preprocesamiento de 3 canales. Si False, asume imagen ya preprocesada (RGB)
         usar_patches: Si False, redimensiona imagen completa sin generar patches
@@ -67,9 +68,21 @@ def procesar_imagen_inferencia(
         if tamaño_imagen is None:
             tamaño_imagen = (config.IMG_SIZE, config.IMG_SIZE)
         
-        # Aplicar preprocesamiento si se solicita
+        # Aplicar preprocesamiento completo si se solicita (eliminar bordes + 3 canales)
         if aplicar_preprocesamiento:
-            img_procesada = cargar_y_preprocesar_3canales(ruta_imagen, tamaño_objetivo=tamaño_imagen)
+            # 1. Cargar imagen original
+            img_original = cv2.imread(ruta_imagen, cv2.IMREAD_GRAYSCALE)
+            if img_original is None:
+                raise ValueError(f"No se pudo cargar la imagen: {ruta_imagen}")
+            # 2. Eliminar bordes
+            img_sin_bordes = auto_crop_borders_improved(img_original)
+            # 3. Redimensionar si es necesario
+            if tamaño_imagen is not None:
+                img_sin_bordes = cv2.resize(img_sin_bordes, (tamaño_imagen[1], tamaño_imagen[0]), interpolation=cv2.INTER_LINEAR)
+            # 4. Convertir a 3 canales
+            img_procesada = preprocesar_imagen_3canales(img_sin_bordes)
+            # Normalizar a [0, 1]
+            img_procesada = img_procesada.astype(np.float32) / 255.0
         else:
             # Cargar imagen preprocesada (ya en 3 canales)
             img_procesada = cv2.imread(ruta_imagen, cv2.IMREAD_COLOR)
@@ -88,12 +101,21 @@ def procesar_imagen_inferencia(
     if tamaño_patch is None:
         tamaño_patch = (config.PATCH_SIZE, config.PATCH_SIZE)
     
-    # Aplicar preprocesamiento si se solicita
+    # Aplicar preprocesamiento completo si se solicita (eliminar bordes + 3 canales)
     if aplicar_preprocesamiento:
-        img_procesada = cargar_y_preprocesar_3canales(ruta_imagen)
+        # 1. Cargar imagen original
+        img_original = cv2.imread(ruta_imagen, cv2.IMREAD_GRAYSCALE)
+        if img_original is None:
+            raise ValueError(f"No se pudo cargar la imagen: {ruta_imagen}")
+        # 2. Eliminar bordes
+        img_sin_bordes = auto_crop_borders_improved(img_original)
+        # 3. Redimensionar si es necesario (antes de convertir a 3 canales)
         if tamaño_imagen is not None:
-            img_procesada = cv2.resize(img_procesada, (tamaño_imagen[1], tamaño_imagen[0]), 
-                                      interpolation=cv2.INTER_LINEAR)
+            img_sin_bordes = cv2.resize(img_sin_bordes, (tamaño_imagen[1], tamaño_imagen[0]), interpolation=cv2.INTER_LINEAR)
+        # 4. Convertir a 3 canales
+        img_procesada = preprocesar_imagen_3canales(img_sin_bordes)
+        # Normalizar a [0, 1]
+        img_procesada = img_procesada.astype(np.float32) / 255.0
     else:
         # Cargar imagen ya preprocesada (3 canales RGB)
         img_procesada = cv2.imread(ruta_imagen, cv2.IMREAD_COLOR)
@@ -115,9 +137,9 @@ def procesar_imagen_inferencia(
     # Calcular stride si no se especifica
     patch_h, patch_w = tamaño_patch
     if stride is None:
-        if overlap_percent is not None:
-            stride_h = int(patch_h * (1 - overlap_percent))
-            stride_w = int(patch_w * (1 - overlap_percent))
+        if overlap_ratio is not None:
+            stride_h = int(patch_h * (1 - overlap_ratio))
+            stride_w = int(patch_w * (1 - overlap_ratio))
             stride = min(stride_h, stride_w)
         else:
             stride = min(patch_h, patch_w)

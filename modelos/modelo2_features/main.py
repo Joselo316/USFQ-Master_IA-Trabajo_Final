@@ -134,12 +134,6 @@ def main():
         choices=['gaussian', 'max_pooling'],
         help='Método de interpolación para reconstruir mapa'
     )
-    parser.add_argument(
-        '--aplicar_preprocesamiento',
-        action='store_true',
-        default=False,
-        help='Aplicar preprocesamiento de 3 canales (default: False, imágenes ya preprocesadas)'
-    )
 
     args = parser.parse_args()
     
@@ -174,7 +168,7 @@ def main():
     print(f"Backbone: {args.backbone}")
     print(f"Tamaño de patch: {patch_size}")
     print(f"Solapamiento: {overlap_ratio*100:.1f}%")
-    print(f"Preprocesamiento: {'Sí' if args.aplicar_preprocesamiento else 'No'}")
+    print(f"Preprocesamiento: Siempre aplicado (eliminar bordes + 3 canales)")
     print("="*70)
     
     # Cargar modelo usando el método cargar() de DistribucionFeatures
@@ -191,12 +185,13 @@ def main():
     # Procesar imagen
     print(f"\nProcesando imagen: {args.imagen}...")
     img_size = args.img_size if args.img_size is not None else config.IMG_SIZE
+    # Siempre aplicar preprocesamiento completo (eliminar bordes + 3 canales)
     patches, posiciones, tamaño_orig = procesar_imagen_inferencia(
         args.imagen,
         tamaño_patch=patch_size if args.usar_patches else None,
         overlap_ratio=overlap_ratio if args.usar_patches else None,
         tamaño_imagen=(img_size, img_size) if not args.usar_patches else None,
-        aplicar_preprocesamiento=args.aplicar_preprocesamiento,
+        aplicar_preprocesamiento=True,  # Siempre aplicar preprocesamiento
         usar_patches=args.usar_patches
     )
     

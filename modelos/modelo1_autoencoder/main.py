@@ -120,27 +120,28 @@ def main():
         help='Directorio de salida (default: outputs/)'
     )
     parser.add_argument(
-        '--use_segmentation',
+        '--usar_patches',
         action='store_true',
-        help='Usar PARCHES: divide la imagen en parches SIN redimensionar'
+        default=False,
+        help='Usar PARCHES: divide la imagen en parches SIN redimensionar (default: False, redimensiona imagen completa)'
     )
     parser.add_argument(
         '--patch_size',
         type=int,
         default=None,
-        help=f'Tamaño de parche cuando se usa segmentación (default: {config.PATCH_SIZE})'
+        help=f'Tamaño de parche cuando se usa --usar_patches (default: {config.PATCH_SIZE})'
     )
     parser.add_argument(
         '--overlap_ratio',
         type=float,
         default=None,
-        help=f'Ratio de solapamiento entre parches 0.0-1.0 (default: {config.OVERLAP_RATIO})'
+        help=f'Ratio de solapamiento entre parches 0.0-1.0 (solo si --usar_patches, default: {config.OVERLAP_RATIO})'
     )
     parser.add_argument(
         '--img_size',
         type=int,
         default=None,
-        help=f'Tamaño de imagen cuando NO se usa segmentación (default: {config.IMG_SIZE})'
+        help=f'Tamaño de imagen cuando NO se usa --usar_patches (default: {config.IMG_SIZE})'
     )
     parser.add_argument(
         '--use_transfer_learning',
@@ -243,7 +244,7 @@ def main():
     # Cargar y preprocesar imagen
     print(f"Cargando imagen: {args.imagen}...")
     
-    modo_procesamiento = "parches" if args.use_segmentation else "resize"
+    modo_procesamiento = "parches" if args.usar_patches else "resize"
     
     print("Ejecutando inferencia...")
     print(f"  Modo de procesamiento: {'PARCHES (segmentación)' if modo_procesamiento == 'parches' else 'RESIZE (redimensionar imagen completa)'}")
