@@ -64,19 +64,19 @@ def main():
         description='Detección de anomalías usando features (PaDiM/PatchCore)'
     )
     parser.add_argument(
-        '--image',
+        '--imagen',
         type=str,
         required=True,
         help='Ruta a la imagen de test'
     )
     parser.add_argument(
-        '--model',
+        '--modelo',
         type=str,
         required=True,
         help='Ruta al modelo entrenado (distribucion_features.pkl)'
     )
     parser.add_argument(
-        '--output',
+        '--output_dir',
         type=str,
         default=None,
         help='Directorio donde guardar resultados (default: outputs/)'
@@ -96,10 +96,10 @@ def main():
         help=f'Tamaño de los patches (solo si --usar_patches, default: {config.PATCH_SIZE} {config.PATCH_SIZE})'
     )
     parser.add_argument(
-        '--overlap_percent',
+        '--overlap_ratio',
         type=float,
         default=None,
-        help=f'Porcentaje de solapamiento entre patches 0.0-1.0 (solo si --usar_patches, default: {config.OVERLAP_RATIO})'
+        help=f'Ratio de solapamiento entre patches 0.0-1.0 (solo si --usar_patches, default: {config.OVERLAP_RATIO})'
     )
     parser.add_argument(
         '--img_size',
@@ -145,21 +145,21 @@ def main():
     
     # Usar valores de config si no se especifican
     patch_size = tuple(args.patch_size) if args.patch_size else (config.PATCH_SIZE, config.PATCH_SIZE)
-    overlap_percent = args.overlap_percent if args.overlap_percent is not None else config.OVERLAP_RATIO
+    overlap_ratio = args.overlap_ratio if args.overlap_ratio is not None else config.OVERLAP_RATIO
     batch_size = args.batch_size if args.batch_size is not None else config.BATCH_SIZE
-    output_dir = args.output if args.output else str(config.OUTPUT_DIR_MODEL2)
+    output_dir = args.output_dir if args.output_dir else str(config.OUTPUT_DIR_MODEL2)
     
     # Iniciar contador de tiempo
     tiempo_inicio = time.time()
     
     # Verificar que existe la imagen
-    if not os.path.exists(args.image):
-        raise FileNotFoundError(f"Imagen no encontrada: {args.image}")
+    if not os.path.exists(args.imagen):
+        raise FileNotFoundError(f"Imagen no encontrada: {args.imagen}")
     
     # Verificar que existe el modelo
-    if not os.path.exists(args.model):
+    if not os.path.exists(args.modelo):
         raise FileNotFoundError(
-            f"Modelo no encontrado: {args.model}\n"
+            f"Modelo no encontrado: {args.modelo}\n"
             f"Por favor, entrena el modelo primero."
         )
     
@@ -169,18 +169,18 @@ def main():
     print("="*70)
     print("INFERENCIA CON MODELO 2: FEATURES (PaDiM/PatchCore)")
     print("="*70)
-    print(f"Imagen: {args.image}")
-    print(f"Modelo: {args.model}")
+    print(f"Imagen: {args.imagen}")
+    print(f"Modelo: {args.modelo}")
     print(f"Backbone: {args.backbone}")
     print(f"Tamaño de patch: {patch_size}")
-    print(f"Solapamiento: {overlap_percent*100:.1f}%")
+    print(f"Solapamiento: {overlap_ratio*100:.1f}%")
     print(f"Preprocesamiento: {'Sí' if args.aplicar_preprocesamiento else 'No'}")
     print("="*70)
     
     # Cargar modelo usando el método cargar() de DistribucionFeatures
-    print(f"\nCargando modelo desde {args.model}...")
+    print(f"\nCargando modelo desde {args.modelo}...")
     distribucion = DistribucionFeatures()
-    distribucion.cargar(Path(args.model))
+    distribucion.cargar(Path(args.modelo))
     print("Modelo cargado correctamente.")
     
     # Inicializar extractor de features
@@ -189,12 +189,12 @@ def main():
     print("Extractor inicializado.")
     
     # Procesar imagen
-    print(f"\nProcesando imagen: {args.image}...")
+    print(f"\nProcesando imagen: {args.imagen}...")
     img_size = args.img_size if args.img_size is not None else config.IMG_SIZE
     patches, posiciones, tamaño_orig = procesar_imagen_inferencia(
-        args.image,
+        args.imagen,
         tamaño_patch=patch_size if args.usar_patches else None,
-        overlap_percent=overlap_percent if args.usar_patches else None,
+        overlap_ratio=overlap_ratio if args.usar_patches else None,
         tamaño_imagen=(img_size, img_size) if not args.usar_patches else None,
         aplicar_preprocesamiento=args.aplicar_preprocesamiento,
         usar_patches=args.usar_patches
@@ -257,12 +257,12 @@ def main():
     # Guardar resultados
     print(f"\nGuardando resultados en {output_dir}...")
     
-    nombre_base = Path(args.image).stem
+    nombre_base = Path(args.imagen).stem
     
     # Cargar imagen original para overlay
-    img_orig = cv2.imread(args.image, cv2.IMREAD_GRAYSCALE)
+    img_orig = cv2.imread(args.imagen, cv2.IMREAD_GRAYSCALE)
     if img_orig is None:
-        raise ValueError(f"No se pudo cargar la imagen: {args.image}")
+        raise ValueError(f"No se pudo cargar la imagen: {args.imagen}")
     img_orig_norm = img_orig.astype(np.float32) / 255.0
     
     # Asegurar que el mapa tiene el mismo tamaño que la imagen original
@@ -318,7 +318,7 @@ def main():
     print("="*70)
     print(f"Número de parches generados: {num_parches}")
     print(f"Tamaño de parche: {patch_size[0]}x{patch_size[1]}")
-    print(f"Solapamiento: {overlap_percent*100:.1f}%")
+    print(f"Solapamiento: {overlap_ratio*100:.1f}%")
     print(f"Tiempo total del proceso: {tiempo_total:.2f} segundos")
     print("="*70)
     print("\nInferencia completada!")

@@ -48,7 +48,7 @@ def main():
         help='Ruta al modelo entrenado (.pkl)'
     )
     parser.add_argument(
-        '--output',
+        '--output_dir',
         type=str,
         default=None,
         help='Directorio para guardar resultados (default: outputs/)'
@@ -66,10 +66,10 @@ def main():
         help=f'Tamaño de los parches (solo si --usar_patches, default: {config.PATCH_SIZE})'
     )
     parser.add_argument(
-        '--overlap',
+        '--overlap_ratio_ratio',
         type=float,
         default=None,
-        help=f'Solapamiento entre parches 0.0-1.0 (solo si --usar_patches, default: {config.OVERLAP_RATIO})'
+        help=f'Ratio de solapamiento entre parches 0.0-1.0 (solo si --usar_patches, default: {config.OVERLAP_RATIO})'
     )
     parser.add_argument(
         '--img_size',
@@ -112,9 +112,9 @@ def main():
     
     # Usar valores de config si no se especifican
     patch_size = args.patch_size if args.patch_size is not None else config.PATCH_SIZE
-    overlap = args.overlap if args.overlap is not None else config.OVERLAP_RATIO
+    overlap_ratio_ratio = args.overlap_ratio_ratio if args.overlap_ratio_ratio is not None else config.OVERLAP_RATIO
     batch_size = args.batch_size if args.batch_size is not None else config.BATCH_SIZE
-    output_dir = args.output if args.output else str(config.OUTPUT_DIR_MODEL3)
+    output_dir = args.output_dir if args.output_dir else str(config.OUTPUT_DIR_MODEL3)
     
     # Iniciar contador de tiempo
     tiempo_inicio = time.time()
@@ -140,7 +140,7 @@ def main():
     print(f"Modelo: {args.modelo}")
     print(f"Modelo ViT: {args.model_name}")
     print(f"Tamaño de patch: {patch_size}")
-    print(f"Solapamiento: {overlap*100:.1f}%")
+    print(f"Solapamiento: {overlap_ratio*100:.1f}%")
     print(f"Preprocesamiento: {'Sí' if args.aplicar_preprocesamiento else 'No'}")
     print("="*70)
     
@@ -188,7 +188,7 @@ def main():
     parches, posiciones, tamaño_orig = procesar_imagen_inferencia(
         args.imagen,
         patch_size=patch_size,
-        overlap=overlap,
+        overlap_ratio=overlap_ratio,
         aplicar_preprocesamiento=args.aplicar_preprocesamiento
     )
     
@@ -295,7 +295,7 @@ def main():
         f.write(f"Timestamp: {timestamp}\n")
         f.write(f"\nParámetros:\n")
         f.write(f"  Patch size: {patch_size}\n")
-        f.write(f"  Overlap: {overlap*100:.1f}%\n")
+        f.write(f"  Overlap: {overlap_ratio*100:.1f}%\n")
         f.write(f"  Umbral: {umbral_final:.4f}\n")
         f.write(f"  Percentil usado: {args.percentil}\n")
         f.write(f"\nResultados:\n")
@@ -313,7 +313,7 @@ def main():
     print("="*70)
     print(f"Número de parches generados: {num_parches}")
     print(f"Tamaño de parche: {patch_size}x{patch_size}")
-    print(f"Solapamiento: {overlap*100:.1f}%")
+    print(f"Solapamiento: {overlap_ratio*100:.1f}%")
     print(f"Umbral usado: {umbral_final:.4f}")
     print(f"Tiempo total del proceso: {tiempo_total:.2f} segundos")
     print("="*70)

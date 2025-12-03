@@ -102,13 +102,13 @@ def main():
         description='Detección de anomalías usando autoencoder entrenado'
     )
     parser.add_argument(
-        '--image_path',
+        '--imagen',
         type=str,
         required=True,
         help='Ruta a la imagen de prueba'
     )
     parser.add_argument(
-        '--model_path',
+        '--modelo',
         type=str,
         default='models/autoencoder_normal.pt',
         help='Ruta al modelo entrenado (default: models/autoencoder_normal.pt)'
@@ -158,17 +158,17 @@ def main():
     args = parser.parse_args()
     
     # Resolver ruta del modelo: si es relativa, buscar desde el directorio del script
-    if not os.path.isabs(args.model_path):
+    if not os.path.isabs(args.modelo):
         # Ruta relativa: intentar desde el directorio del script primero
         script_dir = Path(__file__).parent
-        model_path_script = script_dir / args.model_path
+        model_path_script = script_dir / args.modelo
         if model_path_script.exists():
-            args.model_path = str(model_path_script)
+            args.modelo = str(model_path_script)
         else:
             # Si no existe, intentar desde el directorio actual
-            model_path_cwd = Path(args.model_path)
+            model_path_cwd = Path(args.modelo)
             if model_path_cwd.exists():
-                args.model_path = str(model_path_cwd.resolve())
+                args.modelo = str(model_path_cwd.resolve())
             else:
                 # Sugerir rutas posibles
                 posibles_rutas = [
@@ -178,14 +178,14 @@ def main():
                 ]
                 rutas_existentes = [r for r in posibles_rutas if os.path.exists(r)]
                 mensaje = (
-                    f"Modelo no encontrado: {args.model_path}\n"
+                    f"Modelo no encontrado: {args.modelo}\n"
                     f"Por favor, entrena el modelo primero.\n"
                 )
                 if rutas_existentes:
                     mensaje += f"\nModelos encontrados en:\n"
                     for ruta in rutas_existentes:
                         mensaje += f"  - {ruta}\n"
-                    mensaje += f"\nUsa una de estas rutas con --model_path"
+                    mensaje += f"\nUsa una de estas rutas con --modelo"
                 raise FileNotFoundError(mensaje)
     
     # Usar valores de config si no se especifican
@@ -198,13 +198,13 @@ def main():
     tiempo_inicio = time.time()
     
     # Verificar que existe la imagen
-    if not os.path.exists(args.image_path):
-        raise FileNotFoundError(f"Imagen no encontrada: {args.image_path}")
+    if not os.path.exists(args.imagen):
+        raise FileNotFoundError(f"Imagen no encontrada: {args.imagen}")
     
     # Verificar que existe el modelo (ya resuelto arriba, pero verificar de nuevo)
-    if not os.path.exists(args.model_path):
+    if not os.path.exists(args.modelo):
         raise FileNotFoundError(
-            f"Modelo no encontrado: {args.model_path}\n"
+            f"Modelo no encontrado: {args.modelo}\n"
             f"Por favor, entrena el modelo primero."
         )
     
@@ -221,7 +221,7 @@ def main():
         print("CUDA no disponible. Se usará CPU (inferencia será más lenta).")
     
     # Cargar modelo
-    print(f"Cargando modelo desde {args.model_path}...")
+    print(f"Cargando modelo desde {args.modelo}...")
     
     if args.use_transfer_learning:
         print(f"  Usando modelo con transfer learning (encoder: {args.encoder_name})")
@@ -236,12 +236,12 @@ def main():
         # El modelo espera 3 canales debido al preprocesamiento
         model = ConvAutoencoder(in_channels=3, feature_dims=64).to(device)
     
-    model.load_state_dict(torch.load(args.model_path, map_location=device))
+    model.load_state_dict(torch.load(args.modelo, map_location=device))
     model.eval()
     print("Modelo cargado correctamente.")
     
     # Cargar y preprocesar imagen
-    print(f"Cargando imagen: {args.image_path}...")
+    print(f"Cargando imagen: {args.imagen}...")
     
     modo_procesamiento = "parches" if args.use_segmentation else "resize"
     
@@ -260,12 +260,12 @@ def main():
         import tempfile
         
         # Cargar imagen original
-        img_original = cv2.imread(args.image_path, cv2.IMREAD_GRAYSCALE)
+        img_original = cv2.imread(args.imagen, cv2.IMREAD_GRAYSCALE)
         if img_original is None:
             # Intentar como color y convertir a escala de grises
-            img_color = cv2.imread(args.image_path, cv2.IMREAD_COLOR)
+            img_color = cv2.imread(args.imagen, cv2.IMREAD_COLOR)
             if img_color is None:
-                raise ValueError(f"No se pudo cargar la imagen: {args.image_path}")
+                raise ValueError(f"No se pudo cargar la imagen: {args.imagen}")
             img_original = cv2.cvtColor(img_color, cv2.COLOR_BGR2GRAY)
         
         # Eliminar bordes
@@ -291,9 +291,9 @@ def main():
         print(f"  Generados {num_parches} parches desde la imagen original")
         
         # Cargar imagen original para visualización
-        img_original = cv2.imread(args.image_path, cv2.IMREAD_GRAYSCALE)
+        img_original = cv2.imread(args.imagen, cv2.IMREAD_GRAYSCALE)
         if img_original is None:
-            raise ValueError(f"No se pudo cargar la imagen: {args.image_path}")
+            raise ValueError(f"No se pudo cargar la imagen: {args.imagen}")
         
         original_h, original_w = img_original.shape
         
@@ -363,12 +363,12 @@ def main():
         from preprocesamiento.correct_board import auto_crop_borders_improved
         
         # Cargar imagen original
-        img_original = cv2.imread(args.image_path, cv2.IMREAD_GRAYSCALE)
+        img_original = cv2.imread(args.imagen, cv2.IMREAD_GRAYSCALE)
         if img_original is None:
             # Intentar como color y convertir a escala de grises
-            img_color = cv2.imread(args.image_path, cv2.IMREAD_COLOR)
+            img_color = cv2.imread(args.imagen, cv2.IMREAD_COLOR)
             if img_color is None:
-                raise ValueError(f"No se pudo cargar la imagen: {args.image_path}")
+                raise ValueError(f"No se pudo cargar la imagen: {args.imagen}")
             img_original = cv2.cvtColor(img_color, cv2.COLOR_BGR2GRAY)
         
         original_h, original_w = img_original.shape
@@ -467,7 +467,7 @@ def main():
     # Guardar resultados
     print(f"Guardando resultados en {output_dir}...")
     
-    nombre_base = Path(args.image_path).stem
+    nombre_base = Path(args.imagen).stem
     
     # 1. Reconstrucción (convertir a escala de grises si es necesario)
     if len(reconstruction_np.shape) == 3:
@@ -500,7 +500,7 @@ def main():
     with open(result_file, 'w', encoding='utf-8') as f:
         f.write(f"RESULTADO DE DETECCIÓN DE ANOMALÍAS\n")
         f.write(f"{'='*70}\n")
-        f.write(f"Imagen: {args.image_path}\n")
+        f.write(f"Imagen: {args.imagen}\n")
         f.write(f"Estado: {'ANOMALÍA DETECTADA' if is_anomaly else 'NORMAL'}\n")
         f.write(f"\nEstadísticas del error:\n")
         f.write(f"  Error medio: {error_mean:.6f}\n")

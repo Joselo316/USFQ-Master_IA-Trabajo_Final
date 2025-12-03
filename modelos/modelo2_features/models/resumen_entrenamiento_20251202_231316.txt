@@ -1,0 +1,13 @@
+RESUMEN DEL ENTRENAMIENTO DE VARIANTES DEL MODELO 2
+======================================================================
+Fecha: 2025-12-02 23:13:16
+Directorio de datos: E:\Dataset\preprocesadas
+Batch size: 32
+Modo: PATCHES
+
+Resultados:
+  ResNet18: EXITOSO - Tiempo: 10 min 57.6 seg
+  ResNet50: EXITOSO - Tiempo: 16 min 38.9 seg
+  WideResNet50-2: EXITOSO - Tiempo: 23 min 3.1 seg
+
+Tiempo total: 50 min 39.5 seg
