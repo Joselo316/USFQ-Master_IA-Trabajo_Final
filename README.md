@@ -33,7 +33,6 @@ TesisMDP/
 │   │   ├── utils.py             # Utilidades del modelo
 │   │   ├── model_autoencoder.py # Arquitectura del autoencoder original
 │   │   ├── model_autoencoder_transfer.py # Arquitectura con transfer learning
-│   │   ├── README_TRANSFER_LEARNING.md # Documentación detallada de transfer learning
 │   │   ├── plot_training_history.py # Script para generar gráficas del entrenamiento
 │   │   ├── models/              # Modelos entrenados (.pt)
 │   │   └── outputs/             # Resultados del modelo 1
@@ -75,26 +74,55 @@ TesisMDP/
 - **Tipo**: Autoencoder convolucional (con opción de transfer learning)
 - **Funcionamiento**: Aprende a reconstruir imágenes normales. El error de reconstrucción indica anomalías.
 - **Variantes**:
-  - **Original**: Arquitectura personalizada entrenada desde cero
+  - **Original**: Arquitectura personalizada entrenada desde cero (~100K parámetros)
   - **Transfer Learning**: Encoder ResNet preentrenado (ResNet18/34/50) + decoder entrenado
+    - **ResNet18**: 512 canales en bottleneck, ~11M parámetros en encoder
+    - **ResNet34**: 512 canales en bottleneck, ~21M parámetros en encoder
+    - **ResNet50**: 2048 canales en bottleneck, ~25M parámetros en encoder
+- **Modelo base preentrenado**: 
+  - Original: Ninguno (entrenado desde cero)
+  - Transfer Learning: ResNet preentrenado en ImageNet (encoder congelado por defecto)
 - **Entrada**: Imágenes de 3 canales (resultado del preprocesamiento común)
 - **Salida**: Mapa de anomalía, reconstrucción y overlay
+- **Cómo detecta fallas**: 
+  1. Reconstruye la imagen con el autoencoder entrenado solo con imágenes normales
+  2. Calcula el error de reconstrucción por píxel: `error = (original - reconstruida)²`
+  3. Suma todos los errores (`error_sum`)
+  4. Compara con un umbral adaptativo (percentil 95% de imágenes normales por defecto)
+  5. Si `error_sum > umbral` → FALLA, si `error_sum ≤ umbral` → NORMAL
 
 ### Modelo 2: Features (PaDiM/PatchCore)
 - **Tipo**: Extracción de features con redes preentrenadas (ResNet/WideResNet)
 - **Funcionamiento**: Extrae features de parches y compara con distribución estadística de imágenes normales usando distancia de Mahalanobis.
+- **Modelo base preentrenado**: 
+  - **WideResNet50-2**: Por defecto (recomendada)
+  - **ResNet18**: Opción disponible
+  - **ResNet50**: Opción disponible
+  - Preentrenado en ImageNet, **NO se entrena** (solo se ajusta la distribución estadística)
 - **Entrada**: Imágenes de 3 canales (resultado del preprocesamiento común)
 - **Salida**: Mapa de anomalía y overlay
+- **Cómo detecta fallas**:
+  1. Divide la imagen en parches superpuestos
+  2. Extrae features de cada parche usando el backbone preentrenado (múltiples capas)
+  3. Calcula la distancia de Mahalanobis entre features del parche y la distribución normal aprendida
+  4. Combina scores de múltiples capas (suma, max o promedio)
+  5. Reconstruye el mapa de anomalía completo
+  6. Calcula `mapa_sum` (suma total de valores del mapa)
+  7. Compara con umbral adaptativo (percentil 95% por defecto)
+  8. Si `mapa_sum > umbral` → FALLA, si `mapa_sum ≤ umbral` → NORMAL
 
 ### Modelo 3: Vision Transformer con Múltiples Clasificadores
 - **Tipo**: Vision Transformer preentrenado con diferentes clasificadores de anomalías
 - **Funcionamiento**: Extrae features usando ViT y compara con features normales usando diferentes algoritmos de detección de anomalías.
+- **Modelo base preentrenado**: 
+  - **Vision Transformer (ViT)**: `google/vit-base-patch16-224` por defecto
+  - Preentrenado en ImageNet, **NO se entrena** (solo se entrena el clasificador)
 - **Clasificadores disponibles**:
-  - **k-NN (k-Nearest Neighbors)**: Compara con k vecinos más cercanos
-  - **Isolation Forest**: Detecta anomalías mediante aislamiento
-  - **One-Class SVM**: Clasificador de una clase basado en SVM
-  - **LOF (Local Outlier Factor)**: Detecta outliers locales
-  - **Elliptic Envelope**: Ajusta una envolvente elíptica a los datos normales
+  - **k-NN (k-Nearest Neighbors)**: Compara con k vecinos más cercanos (k=5 por defecto)
+  - **Isolation Forest**: Detecta anomalías mediante aislamiento (contamination=0.1 por defecto)
+  - **One-Class SVM**: Clasificador de una clase basado en SVM (nu=0.1 por defecto)
+  - **LOF (Local Outlier Factor)**: Detecta outliers locales (k=5 por defecto)
+  - **Elliptic Envelope**: Ajusta una envolvente elíptica a los datos normales (contamination=0.1 por defecto)
 - **Entrada**: Imágenes de 3 canales (resultado del preprocesamiento común)
 - **Salida**: Mapa de anomalía, mapa binario y visualización
 
@@ -104,6 +132,10 @@ TesisMDP/
   - Usa un backbone CNN preentrenado (ResNet18/50) para extraer features de múltiples escalas
   - Aplica normalizing flows (coupling layers) para mapear features normales a distribución gaussiana estándar
   - Durante inferencia, calcula la probabilidad bajo el flow; baja probabilidad = anomalía
+- **Modelo base preentrenado**: 
+  - **ResNet18**: Por defecto
+  - **ResNet50**: Opción disponible
+  - Preentrenado en ImageNet, **se hace fine-tuning** junto con los flows
 - **Entrada**: Imágenes de 3 canales (resultado del preprocesamiento común)
 - **Salida**: Mapa de anomalía por píxel, heatmaps, métricas (AUROC imagen/píxel)
 
@@ -114,6 +146,11 @@ TesisMDP/
   - **Student**: Misma arquitectura pero inicializada aleatoriamente, entrenada para imitar features del teacher
   - Solo se entrena con imágenes normales
   - Durante inferencia, la discrepancia entre features de teacher y student indica anomalías
+- **Modelo base preentrenado**: 
+  - **ResNet18**: Por defecto (Teacher congelado)
+  - **ResNet50**: Opción disponible
+  - **WideResNet50-2**: Opción disponible
+  - Preentrenado en ImageNet, **Teacher NO se entrena** (congelado), solo se entrena el Student
 - **Entrada**: Imágenes de 3 canales (resultado del preprocesamiento común)
 - **Salida**: Mapa de anomalía por píxel, heatmaps, métricas (AUROC imagen)
 
@@ -1146,6 +1183,24 @@ cd modelos/modelo1_autoencoder
 python plot_training_history.py --history "models/training_history_autoencoder_normal_20240101_120000.json"
 ```
 
+## Resumen de Modelos Base y Entrenamiento
+
+| Modelo | Modelo Base Preentrenado | ¿Se Entrena? | Por Defecto |
+|-------|-------------------------|--------------|-------------|
+| Modelo 1 (Original) | Ninguno | Sí (todo desde cero) | Sí |
+| Modelo 1 (Transfer) | ResNet18/34/50 | Solo decoder (encoder congelado) | ResNet18 (si se activa) |
+| Modelo 2 | WideResNet50-2 | No (solo distribución estadística) | WideResNet50-2 |
+| Modelo 3 | ViT-base-patch16-224 | No (solo clasificador) | ViT-base-patch16-224 |
+| Modelo 4 | ResNet18/50 | Sí (backbone + flows, fine-tuning) | ResNet18 |
+| Modelo 5 | ResNet18/50/WideResNet50-2 | Solo Student (Teacher congelado) | ResNet18 |
+
+**Nota importante**: Los modelos base (ResNet, WideResNet, ViT) son preentrenados en ImageNet. El entrenamiento adicional varía según el modelo:
+- **Modelo 1**: El autoencoder completo (o solo el decoder si usas transfer learning)
+- **Modelo 2**: La distribución estadística de features normales (NO entrena el backbone)
+- **Modelo 3**: El clasificador de anomalías con features normales (NO entrena el ViT)
+- **Modelo 4**: El modelo completo incluyendo backbone y flows (fine-tuning del backbone)
+- **Modelo 5**: Solo el Student network (Teacher está congelado)
+
 ## Comparación de Métodos
 
 Todos los métodos (1-5) comparten:
@@ -1155,6 +1210,46 @@ Todos los métodos (1-5) comparten:
 - **Evaluación**: Con imágenes normales + defectuosas para calcular métricas
 
 Las métricas guardadas en `outputs/metrics_*.json` permiten comparar directamente el rendimiento de los 5 métodos.
+
+## Cómo Funciona la Detección de Anomalías
+
+### Modelo 1: Proceso de Evaluación
+
+1. **Preprocesamiento**: Carga imagen, redimensiona a 256x256, aplica preprocesamiento de 3 canales, normaliza
+2. **Reconstrucción**: El autoencoder (entrenado solo con imágenes normales) intenta reconstruir la imagen
+3. **Cálculo de error**: `error_map = mean((original - reconstruida)², axis=canales)`, `error_sum = sum(error_map)`
+4. **Umbral adaptativo**: Calcula percentil 95% de `error_sum` de imágenes normales (o percentil global si no hay normales)
+5. **Decisión**: Si `error_sum > umbral` → FALLA, si `error_sum ≤ umbral` → NORMAL
+
+**Parámetros configurables**:
+- `--umbral_percentil`: Controla qué tan estricto es el umbral (default: 95.0)
+  - 95.0: Balanceado
+  - 98.0: Más estricto (menos falsos positivos)
+  - 90.0: Más sensible (detecta más anomalías)
+
+### Modelo 2: Proceso de Detección
+
+1. **División en parches**: Divide la imagen en parches superpuestos
+2. **Extracción de features**: Cada parche pasa por el backbone preentrenado, extrae features de múltiples capas
+3. **Distancia de Mahalanobis**: Calcula `d² = (x - μ)ᵀ · Σ⁻¹ · (x - μ)` donde:
+   - `x`: características del parche
+   - `μ`: media de características normales (aprendida durante entrenamiento)
+   - `Σ`: matriz de covarianza de características normales
+4. **Combinación de scores**: Combina scores de múltiples capas (suma, max o promedio)
+5. **Reconstrucción del mapa**: Reconstruye mapa de anomalía completo usando interpolación (gaussian o max_pooling)
+6. **Score global**: Calcula `mapa_sum` (suma total de valores del mapa)
+7. **Umbral adaptativo**: Calcula percentil 95% de `mapa_sum` de imágenes normales
+8. **Decisión**: Si `mapa_sum > umbral` → FALLA, si `mapa_sum ≤ umbral` → NORMAL
+
+**Parámetros configurables**:
+- `--umbral_percentil`: Percentil para umbral adaptativo (default: 95.0)
+- `--combine_method`: Cómo combinar scores de capas (`suma`, `max`, `promedio`)
+- `--interpolation_method`: Cómo reconstruir el mapa (`gaussian`, `max_pooling`)
+
+**Recomendaciones**:
+- Primera evaluación: Usa umbral adaptativo por defecto (percentil 95%)
+- Si hay muchos falsos positivos: Aumenta el percentil a 97-98%
+- Si hay muchos falsos negativos: Disminuye el percentil a 90-92%
 
 ## Validación y Evaluación
 

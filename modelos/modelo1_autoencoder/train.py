@@ -672,6 +672,9 @@ def main():
     
     print(f"DataLoader configurado: {num_workers} workers, prefetch_factor={prefetch_factor}, pin_memory={device == 'cuda'}")
     
+    # Determinar si se está reescalando (img_size=256 y NO se usa segmentación)
+    es_reescalado = not args.use_segmentation and img_size == 256
+    
     # Crear modelo
     if args.use_transfer_learning:
         print(f"\nCreando modelo con transfer learning (encoder: {args.encoder_name})...")
@@ -680,11 +683,12 @@ def main():
             in_channels=3,
             freeze_encoder=args.freeze_encoder
         ).to(device)
-        model_name = f"autoencoder_{args.encoder_name}.pt"
+        base_name = f"autoencoder_{args.encoder_name}"
+        model_name = f"{base_name}_256.pt" if es_reescalado else f"{base_name}.pt"
     else:
         print("\nCreando modelo original (entrenado desde cero)...")
         model = ConvAutoencoder(in_channels=3, feature_dims=64).to(device)
-        model_name = "autoencoder_normal.pt"
+        model_name = "autoencoder_normal_256.pt" if es_reescalado else "autoencoder_normal.pt"
     
     print(f"Parámetros totales: {sum(p.numel() for p in model.parameters()):,}")
     

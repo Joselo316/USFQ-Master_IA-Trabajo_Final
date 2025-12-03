@@ -539,7 +539,14 @@ def main():
         print(f"Imágenes de validación: {len(val_loader.dataset)}")
         print(f"DataLoader num_workers: {train_loader.num_workers}")
         
-        model_path = models_dir / f'fastflow_{args.backbone}_{args.img_size}.pt'
+        # Determinar si se está reescalando (img_size=256)
+        # Si img_size=256, el modelo se guarda con sufijo _256
+        es_reescalado = args.img_size == 256
+        if es_reescalado:
+            model_name = f'fastflow_{args.backbone}_256.pt'
+        else:
+            model_name = f'fastflow_{args.backbone}_{args.img_size}.pt'
+        model_path = models_dir / model_name
         
         # Crear configuración para el historial
         config = {

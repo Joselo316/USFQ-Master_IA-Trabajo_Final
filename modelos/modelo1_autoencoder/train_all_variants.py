@@ -56,15 +56,24 @@ def entrenar_variante(nombre, args_base, args_especificos):
                 cmd.extend([f"--{key}", str(value)])
     
     print(f"Comando: {' '.join(cmd)}")
+    print()  # Línea en blanco para separar
     inicio = time.time()
-    result = subprocess.run(cmd, cwd=Path(__file__).parent)
+    
+    # Ejecutar con salida en tiempo real
+    result = subprocess.run(
+        cmd, 
+        cwd=Path(__file__).parent,
+        stdout=None,  # Mostrar salida en tiempo real
+        stderr=subprocess.STDOUT  # Redirigir stderr a stdout
+    )
     tiempo = time.time() - inicio
     
+    print()  # Línea en blanco después del entrenamiento
     if result.returncode == 0:
-        print(f"Variante '{nombre}' entrenada exitosamente en {tiempo/60:.1f} minutos")
+        print(f"✓ Variante '{nombre}' entrenada exitosamente en {tiempo/60:.1f} minutos")
         return True, tiempo
     else:
-        print(f"ERROR: Falló el entrenamiento de la variante '{nombre}'")
+        print(f"✗ ERROR: Falló el entrenamiento de la variante '{nombre}' (código de salida: {result.returncode})")
         return False, tiempo
 
 
@@ -271,8 +280,28 @@ pero diferentes arquitecturas de modelo.
     inicio_total = time.time()
     resultados = {}
     
+    # Contar cuántas variantes se van a entrenar
+    variantes_a_entrenar = []
+    if not args.skip_original:
+        variantes_a_entrenar.append(1)
+    if not args.skip_resnet18:
+        variantes_a_entrenar.append(2)
+    if not args.skip_resnet50:
+        variantes_a_entrenar.append(3)
+    
+    total_variantes = len(variantes_a_entrenar)
+    print(f"\n{'='*70}")
+    print(f"Se entrenarán {total_variantes} variante(s) del modelo 1")
+    print(f"{'='*70}\n")
+    
+    variante_actual = 0
+    
     # Variante 1: Modelo Original
     if not args.skip_original:
+        variante_actual += 1
+        print("\n" + "="*70)
+        print(f"VARIANTE {variante_actual}/{total_variantes}: Modelo Original (Autoencoder desde cero)")
+        print("="*70)
         args_original = {}
         exito, tiempo = entrenar_variante(
             "Modelo Original (Autoencoder desde cero)",
@@ -280,9 +309,17 @@ pero diferentes arquitecturas de modelo.
             args_original
         )
         resultados['original'] = {'exito': exito, 'tiempo': tiempo, 'nombre_archivo': 'autoencoder_normal.pt'}
+        if not exito:
+            print(f"\n⚠ ADVERTENCIA: La variante 'original' falló, pero continuando con las siguientes...")
+    else:
+        print("\n⏭ Saltando variante: Modelo Original (--skip_original activado)")
     
     # Variante 2: ResNet18
     if not args.skip_resnet18:
+        variante_actual += 1
+        print("\n" + "="*70)
+        print(f"VARIANTE {variante_actual}/{total_variantes}: Modelo con Transfer Learning (ResNet18)")
+        print("="*70)
         args_resnet18 = {
             'use_transfer_learning': True,
             'encoder_name': 'resnet18',
@@ -294,9 +331,17 @@ pero diferentes arquitecturas de modelo.
             args_resnet18
         )
         resultados['resnet18'] = {'exito': exito, 'tiempo': tiempo, 'nombre_archivo': 'autoencoder_resnet18.pt'}
+        if not exito:
+            print(f"\n⚠ ADVERTENCIA: La variante 'resnet18' falló, pero continuando con las siguientes...")
+    else:
+        print("\n⏭ Saltando variante: ResNet18 (--skip_resnet18 activado)")
     
     # Variante 3: ResNet50
     if not args.skip_resnet50:
+        variante_actual += 1
+        print("\n" + "="*70)
+        print(f"VARIANTE {variante_actual}/{total_variantes}: Modelo con Transfer Learning (ResNet50)")
+        print("="*70)
         args_resnet50 = {
             'use_transfer_learning': True,
             'encoder_name': 'resnet50',
@@ -308,6 +353,10 @@ pero diferentes arquitecturas de modelo.
             args_resnet50
         )
         resultados['resnet50'] = {'exito': exito, 'tiempo': tiempo, 'nombre_archivo': 'autoencoder_resnet50.pt'}
+        if not exito:
+            print(f"\n⚠ ADVERTENCIA: La variante 'resnet50' falló.")
+    else:
+        print("\n⏭ Saltando variante: ResNet50 (--skip_resnet50 activado)")
     
     # Resumen final
     tiempo_total = time.time() - inicio_total

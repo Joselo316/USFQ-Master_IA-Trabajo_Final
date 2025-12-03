@@ -446,6 +446,10 @@ Ejemplo de uso:
     if args.classifier_type == 'one_class_svm':
         classifier_params['nu'] = args.nu
     
+    # Determinar si se está reescalando (img_size=256 y NO se usan patches)
+    img_size_final = args.img_size if args.img_size is not None else config.IMG_SIZE
+    es_reescalado = img_size_final == 256 and not args.usar_patches
+    
     # Generar nombre del modelo según parámetros
     modelo_base = args.model_name.split('/')[-1]  # Ej: vit-base-patch16-224
     classifier_suffix = args.classifier_type
@@ -460,7 +464,8 @@ Ejemplo de uso:
     elif args.classifier_type == 'elliptic_envelope':
         classifier_suffix = f"elliptic_c{args.contamination}"
     
-    nombre_modelo = f"vit_{classifier_suffix}_{modelo_base}.pkl"
+    base_name = f"vit_{classifier_suffix}_{modelo_base}"
+    nombre_modelo = f"{base_name}_256.pkl" if es_reescalado else f"{base_name}.pkl"
     output_path = output_dir / nombre_modelo
     
     # Entrenar modelo

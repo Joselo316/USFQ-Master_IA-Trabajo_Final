@@ -15,7 +15,7 @@ import config
 
 # Rutas a los scripts de entrenamiento
 PROJECT_ROOT = Path(__file__).parent
-TRAIN_MODEL1 = PROJECT_ROOT / "modelos" / "modelo1_autoencoder" / "train.py"
+TRAIN_MODEL1 = PROJECT_ROOT / "modelos" / "modelo1_autoencoder" / "train_all_variants.py"
 TRAIN_MODEL2 = PROJECT_ROOT / "modelos" / "modelo2_features" / "train_all_variants.py"
 TRAIN_MODEL3 = PROJECT_ROOT / "modelos" / "modelo3_transformer" / "train_all_variants.py"
 TRAIN_MODEL4 = PROJECT_ROOT / "modelos" / "modelo4_fastflow" / "main.py"
@@ -106,9 +106,14 @@ def calcular_num_workers() -> int:
 
 
 def entrenar_modelo1(args):
-    """Entrena el modelo 1: Autoencoder"""
+    """Entrena el modelo 1: Autoencoder (TODAS LAS VARIANTES)"""
     print("\n" + "="*70)
-    print("ENTRENANDO MODELO 1: AUTOENCODER")
+    print("ENTRENANDO MODELO 1: AUTOENCODER (3 VARIANTES)")
+    print("="*70)
+    print("NOTA: Se entrenarán automáticamente 3 variantes:")
+    print("  1. Modelo Original (Autoencoder desde cero)")
+    print("  2. Modelo con Transfer Learning (ResNet18)")
+    print("  3. Modelo con Transfer Learning (ResNet50)")
     print("="*70)
     
     # Determinar ruta del dataset según si se reescala o no
@@ -178,13 +183,34 @@ def entrenar_modelo1(args):
             print(f"    Se procesarán las imágenes durante el entrenamiento")
             print(f"    Para acelerar, ejecuta: python preprocesar_parches.py")
     
-    if args.model1_transfer_learning:
-        cmd.append("--use_transfer_learning")
-        cmd.extend(["--encoder_name", args.model1_encoder])
-        if args.model1_freeze_encoder:
-            cmd.append("--freeze_encoder")
+    # NOTA: train_all_variants.py entrena automáticamente las 3 variantes
+    # Si el usuario quiere entrenar solo una variante específica, puede usar:
+    # --skip_original, --skip_resnet18, o --skip_resnet50
+    # O usar train.py directamente con --use_transfer_learning
     
-    print(f"Comando: {' '.join(cmd)}")
+    # Si el usuario especificó transfer learning, solo entrenar esa variante
+    if args.model1_transfer_learning:
+        # Entrenar solo la variante especificada
+        if args.model1_encoder == 'resnet18':
+            cmd.append("--skip_original")
+            cmd.append("--skip_resnet50")
+        elif args.model1_encoder == 'resnet50':
+            cmd.append("--skip_original")
+            cmd.append("--skip_resnet18")
+        # Si no especifica encoder, entrenar todas (comportamiento por defecto)
+    
+    # Agregar early stopping si está disponible
+    if hasattr(args, 'early_stopping') and args.early_stopping:
+        cmd.append("--early_stopping")
+        if hasattr(args, 'patience'):
+            cmd.extend(["--patience", str(args.patience)])
+        if hasattr(args, 'min_delta'):
+            cmd.extend(["--min_delta", str(args.min_delta)])
+    
+    print(f"\nComando: {' '.join(cmd)}")
+    print(f"\n{'='*70}")
+    print("INICIANDO ENTRENAMIENTO DE LAS 3 VARIANTES")
+    print(f"{'='*70}\n")
     result = subprocess.run(cmd, cwd=PROJECT_ROOT)
     return result.returncode == 0
 

@@ -229,7 +229,20 @@ def entrenar_modelo(
             # Extraer features cuando se alcanza el límite
             if len(patches_acumulados) >= max_patches_per_feature_batch:
                 logger.info(f"  Extrayendo features de {len(patches_acumulados)} patches acumulados...")
-                patches_array = np.array(patches_acumulados)
+                
+                # Normalizar todos los patches al mismo tamaño antes de convertir a array
+                if usar_patches and tamaño_patch:
+                    patch_h, patch_w = tamaño_patch
+                    patches_normalizados = []
+                    for patch in patches_acumulados:
+                        # Asegurar que el patch tenga el tamaño correcto
+                        if patch.shape[:2] != (patch_h, patch_w):
+                            patch = cv2.resize(patch, (patch_w, patch_h), interpolation=cv2.INTER_LINEAR)
+                        patches_normalizados.append(patch)
+                    patches_array = np.array(patches_normalizados)
+                    del patches_normalizados
+                else:
+                    patches_array = np.array(patches_acumulados)
                 
                 # Liberar lista de patches antes de convertir a array
                 del patches_acumulados
@@ -312,7 +325,20 @@ def entrenar_modelo(
             # Extraer features cuando se alcanza el límite (más frecuente para evitar saturación)
             if len(patches_acumulados) >= max_patches_per_feature_batch:
                 logger.info(f"  Extrayendo features de {len(patches_acumulados)} patches acumulados...")
-                patches_array = np.array(patches_acumulados)
+                
+                # Normalizar todos los patches al mismo tamaño antes de convertir a array
+                if usar_patches and tamaño_patch:
+                    patch_h, patch_w = tamaño_patch
+                    patches_normalizados = []
+                    for patch in patches_acumulados:
+                        # Asegurar que el patch tenga el tamaño correcto
+                        if patch.shape[:2] != (patch_h, patch_w):
+                            patch = cv2.resize(patch, (patch_w, patch_h), interpolation=cv2.INTER_LINEAR)
+                        patches_normalizados.append(patch)
+                    patches_array = np.array(patches_normalizados)
+                    del patches_normalizados
+                else:
+                    patches_array = np.array(patches_acumulados)
                 
                 # Liberar lista de patches antes de convertir a array
                 del patches_acumulados
@@ -344,7 +370,20 @@ def entrenar_modelo(
         # Extraer features de los patches restantes
         if len(patches_acumulados) > 0:
             logger.info(f"  Extrayendo features de {len(patches_acumulados)} patches restantes...")
-            patches_array = np.array(patches_acumulados)
+            
+            # Normalizar todos los patches al mismo tamaño antes de convertir a array
+            if usar_patches and tamaño_patch:
+                patch_h, patch_w = tamaño_patch
+                patches_normalizados = []
+                for patch in patches_acumulados:
+                    # Asegurar que el patch tenga el tamaño correcto
+                    if patch.shape[:2] != (patch_h, patch_w):
+                        patch = cv2.resize(patch, (patch_w, patch_h), interpolation=cv2.INTER_LINEAR)
+                    patches_normalizados.append(patch)
+                patches_array = np.array(patches_normalizados)
+                del patches_normalizados
+            else:
+                patches_array = np.array(patches_acumulados)
             
             # Liberar lista de patches antes de convertir a array
             del patches_acumulados
@@ -530,8 +569,12 @@ Ejemplo de uso:
     
     output_dir.mkdir(parents=True, exist_ok=True)
     
+    # Determinar si se está reescalando (img_size especificado y NO se usan patches)
+    es_reescalado = args.img_size is not None and args.img_size == 256 and not args.usar_patches
+    
     # Generar nombre del modelo
-    nombre_modelo = f"{args.backbone}.pkl"
+    base_name = args.backbone
+    nombre_modelo = f"{base_name}_256.pkl" if es_reescalado else f"{base_name}.pkl"
     output_path = output_dir / nombre_modelo
     
     # Configurar parámetros
